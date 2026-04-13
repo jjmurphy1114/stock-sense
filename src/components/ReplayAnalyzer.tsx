@@ -6,6 +6,31 @@ interface AnalysisResponse {
     total_actions: number;
     match_duration_seconds: number;
     players_per_frame: number;
+    per_player: Array<{
+      player_index: number;
+      player_name: string;
+      character: string;
+      l_cancel_attempts: number;
+      l_cancel_successes: number;
+      l_cancel_rate: number;
+      tech_attempts: number;
+      missed_techs: number;
+      tech_miss_rate: number;
+      attack_actions: number;
+      movement_actions: number;
+      openings_won: number;
+      kills_secured: number;
+      total_damage_inflicted: number;
+      punishes_faced: number;
+      escaped_punishes: number;
+      openings_per_kill: number | null;
+      damage_per_opening: number;
+      neutral_win_rate: number;
+      average_opening_length: number;
+      defensive_escape_rate: number;
+      attack_ratio: number;
+      movement_ratio: number;
+    }>;
   };
   feedback: string[];
   summary: string;
@@ -80,7 +105,7 @@ export default function ReplayAnalyzer() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-slate-900 to-slate-800 p-6">
+    <div className="min-h-screen bg-linear-to-br from-purple-900 via-slate-900 to-slate-800 p-6">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
@@ -124,7 +149,7 @@ export default function ReplayAnalyzer() {
               <button
                 type="submit"
                 disabled={!file || loading}
-                className="w-full px-6 py-3 bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full px-6 py-3 bg-linear-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <span className="flex items-center justify-center gap-2">
@@ -250,6 +275,88 @@ export default function ReplayAnalyzer() {
                     ))}
                   </div>
                 </div>
+
+                {/* Per-Player Advanced Stats */}
+                {analysis.stats.per_player.length > 0 && (
+                  <div className="space-y-3">
+                    <h3 className="text-sm font-semibold text-purple-300 uppercase">
+                      Per-Player Habits
+                    </h3>
+                    <div className="space-y-3">
+                      {analysis.stats.per_player.map((player) => (
+                        <div
+                          key={player.player_index}
+                          className="bg-slate-700/50 rounded-lg p-4 border border-slate-600"
+                        >
+                          <p className="text-white font-semibold">
+                            {player.player_name} ({player.character})
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-sm">
+                            <div>
+                              <p className="text-gray-400">L-Cancel</p>
+                              <p className="text-white">
+                                {player.l_cancel_successes}/
+                                {player.l_cancel_attempts} (
+                                {player.l_cancel_rate}%)
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400">Tech Miss Rate</p>
+                              <p className="text-white">
+                                {player.missed_techs}/{player.tech_attempts} (
+                                {player.tech_miss_rate}%)
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400">Aggression</p>
+                              <p className="text-white">
+                                Attack {player.attack_ratio}% / Move{" "}
+                                {player.movement_ratio}%
+                              </p>
+                            </div>
+                          </div>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 text-sm">
+                            <div>
+                              <p className="text-gray-400">Openings per Kill</p>
+                              <p className="text-white">
+                                {player.openings_per_kill ?? "N/A"}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400">Damage per Opening</p>
+                              <p className="text-white">
+                                {player.damage_per_opening}
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400">Neutral Win Rate</p>
+                              <p className="text-white">
+                                {player.neutral_win_rate}%
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400">
+                                Avg Opening Length
+                              </p>
+                              <p className="text-white">
+                                {player.average_opening_length} hits
+                              </p>
+                            </div>
+                            <div>
+                              <p className="text-gray-400">
+                                Defensive Escape Rate
+                              </p>
+                              <p className="text-white">
+                                {player.escaped_punishes}/{player.punishes_faced} (
+                                {player.defensive_escape_rate}%)
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 

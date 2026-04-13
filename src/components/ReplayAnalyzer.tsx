@@ -46,7 +46,7 @@ export default function ReplayAnalyzer() {
     e.preventDefault();
 
     if (!file) {
-      setError("Please select a file");
+      setError("Please select a .slp file");
       return;
     }
 
@@ -84,7 +84,7 @@ export default function ReplayAnalyzer() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-white mb-2">🎮 Melee Coach</h1>
+          <h1 className="text-5xl font-bold text-white mb-2">Melee Coach</h1>
           <p className="text-purple-200 text-lg">AI-Powered Replay Analysis</p>
         </div>
 

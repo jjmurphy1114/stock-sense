@@ -16,6 +16,9 @@ interface AnalysisResponse {
       tech_attempts: number;
       missed_techs: number;
       tech_miss_rate: number;
+      tech_left_count: number;
+      tech_right_count: number;
+      tech_in_place_count: number;
       attack_actions: number;
       movement_actions: number;
       openings_won: number;
@@ -38,12 +41,38 @@ interface AnalysisResponse {
     players: Array<{
       player_index: number;
       character: string;
-      nametag: string;
+      tag: string;
       is_cpu: boolean;
+      stocks_left: number | null;
+      did_win: boolean;
     }>;
     num_players: number;
     stage?: string;
+    winner_player_index?: number | null;
+    winner_name?: string | null;
   };
+}
+
+function StatTile({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-600/80 bg-slate-900/40 px-4 py-3 shadow-sm shadow-black/10">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+        {label}
+      </p>
+      <p className="mt-2 text-lg font-semibold leading-none text-white">
+        {value}
+      </p>
+      {detail && <p className="mt-2 text-xs text-slate-400">{detail}</p>}
+    </div>
+  );
 }
 
 export default function ReplayAnalyzer() {
@@ -113,62 +142,95 @@ export default function ReplayAnalyzer() {
           <p className="text-purple-200 text-lg">AI-Powered Replay Analysis</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div
+          className={`grid gap-8 ${analysis ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}
+        >
           {/* Upload Section */}
-          <div className="bg-slate-800 rounded-xl shadow-2xl p-8 border border-purple-500/20">
-            <h2 className="text-2xl font-bold text-white mb-6">
-              Upload Replay
-            </h2>
-
-            <form onSubmit={handleSubmit} className="space-y-6">
-              {/* File Input */}
-              <div className="relative">
-                <label className="block text-sm font-medium text-purple-200 mb-3">
-                  Select .slp file
-                </label>
-                <input
-                  type="file"
-                  accept=".slp"
-                  onChange={handleFileChange}
-                  disabled={loading}
-                  className="w-full px-4 py-3 bg-slate-700 border-2 border-dashed border-purple-400/50 rounded-lg text-white placeholder-gray-400 cursor-pointer hover:border-purple-400 transition disabled:opacity-50"
-                />
-                {fileName && (
-                  <p className="text-sm text-green-400 mt-2">✓ {fileName}</p>
+          <div
+            className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
+              analysis ? "p-5" : "p-8"
+            }`}
+          >
+            <div
+              className={`${
+                analysis
+                  ? "flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between"
+                  : ""
+              }`}
+            >
+              <div>
+                <h2 className="text-2xl font-bold text-white mb-2">
+                  Upload Replay
+                </h2>
+                {analysis && (
+                  <p className="text-sm text-purple-200">
+                    Game loaded. Upload another `.slp` file to replace this
+                    analysis.
+                  </p>
                 )}
               </div>
 
-              {/* Error Message */}
-              {error && (
-                <div className="bg-red-900/30 border border-red-600/50 rounded-lg p-4">
-                  <p className="text-red-200 text-sm">⚠️ {error}</p>
-                </div>
-              )}
-
-              {/* Submit Button */}
-              <button
-                type="submit"
-                disabled={!file || loading}
-                className="w-full px-6 py-3 bg-linear-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              <form
+                onSubmit={handleSubmit}
+                className={`${
+                  analysis ? "flex flex-col gap-3 lg:min-w-[28rem]" : "space-y-6"
+                }`}
               >
-                {loading ? (
-                  <span className="flex items-center justify-center gap-2">
-                    <span className="animate-spin">⚙️</span> Analyzing...
-                  </span>
-                ) : (
-                  "Analyze Replay"
+                {/* File Input */}
+                <div className="relative">
+                  {!analysis && (
+                    <label className="block text-sm font-medium text-purple-200 mb-3">
+                      Select .slp file
+                    </label>
+                  )}
+                  <input
+                    type="file"
+                    accept=".slp"
+                    onChange={handleFileChange}
+                    disabled={loading}
+                    className="w-full px-4 py-3 bg-slate-700 border-2 border-dashed border-purple-400/50 rounded-lg text-white placeholder-gray-400 cursor-pointer hover:border-purple-400 transition disabled:opacity-50"
+                  />
+                  {fileName && (
+                    <p className="text-sm text-green-400 mt-2">✓ {fileName}</p>
+                  )}
+                </div>
+
+                {/* Error Message */}
+                {error && (
+                  <div className="bg-red-900/30 border border-red-600/50 rounded-lg p-4">
+                    <p className="text-red-200 text-sm">⚠️ {error}</p>
+                  </div>
                 )}
-              </button>
-            </form>
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={!file || loading}
+                  className={`px-6 py-3 bg-linear-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                    analysis ? "lg:self-start" : "w-full"
+                  }`}
+                >
+                  {loading ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <span className="animate-spin">⚙️</span> Analyzing...
+                    </span>
+                  ) : (
+                    "Analyze Replay"
+                  )}
+                </button>
+              </form>
+            </div>
 
             {/* Info Box */}
-            <div className="mt-8 p-4 bg-slate-700/50 rounded-lg border border-purple-400/20">
-              <p className="text-xs text-gray-300">
-                💡 <strong>Tip:</strong> Upload your Slippi replay files (.slp)
-                to receive instant coaching feedback based on your gameplay
-                stats.
-              </p>
-            </div>
+            {!analysis && (
+              <div className="mt-8 p-4 bg-slate-700/50 rounded-lg border border-purple-400/20">
+                <p className="text-xs text-gray-300">
+                  💡 <strong>Tip:</strong> Upload your Slippi replay files
+                  (.slp) to receive instant coaching feedback based on your
+                  gameplay stats.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Analysis Results */}
@@ -200,25 +262,43 @@ export default function ReplayAnalyzer() {
                           </p>
                         </div>
                       )}
+                      {analysis.metadata.winner_name && (
+                        <div>
+                          <p className="text-gray-400">Winner</p>
+                          <p className="text-white font-semibold">
+                            {analysis.metadata.winner_name}
+                          </p>
+                        </div>
+                      )}
                     </div>
                     {analysis.metadata.players.length > 0 && (
                       <div className="mt-4 space-y-2">
                         {analysis.metadata.players.map((player, idx) => (
                           <div
                             key={idx}
-                            className="flex items-center gap-3 p-2 bg-slate-700/50 rounded"
+                            className="flex items-center justify-between gap-3 p-2 bg-slate-700/50 rounded"
                           >
-                            <span className="text-purple-400 font-semibold">
-                              P{player.player_index + 1}
-                            </span>
-                            <span className="text-white">
-                              {player.character}
-                            </span>
-                            {player.nametag && (
-                              <span className="text-gray-400 text-xs">
-                                ({player.nametag})
+                            <div className="flex items-center gap-3">
+                              <span className="text-purple-400 font-semibold">
+                                P{player.player_index + 1}
                               </span>
-                            )}
+                              <span className="text-white">
+                                {player.character}
+                              </span>
+                              {player.tag && (
+                                <span className="text-gray-400 text-xs">
+                                  ({player.tag})
+                                </span>
+                              )}
+                              {player.did_win && (
+                                <span className="text-green-400 text-xs font-semibold">
+                                  Winner
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-gray-300 text-xs">
+                              Stocks left: {player.stocks_left ?? "N/A"}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -286,71 +366,71 @@ export default function ReplayAnalyzer() {
                       {analysis.stats.per_player.map((player) => (
                         <div
                           key={player.player_index}
-                          className="bg-slate-700/50 rounded-lg p-4 border border-slate-600"
+                          className="overflow-hidden rounded-2xl border border-slate-600 bg-linear-to-br from-slate-800 via-slate-800 to-slate-900/90 shadow-lg shadow-black/15"
                         >
-                          <p className="text-white font-semibold">
-                            {player.player_name} ({player.character})
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3 text-sm">
+                          <div className="flex flex-col gap-3 border-b border-slate-700/80 bg-slate-900/35 px-5 py-4 sm:flex-row sm:items-end sm:justify-between">
                             <div>
-                              <p className="text-gray-400">L-Cancel</p>
-                              <p className="text-white">
-                                {player.l_cancel_successes}/
-                                {player.l_cancel_attempts} (
-                                {player.l_cancel_rate}%)
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-purple-300">
+                                Player {player.player_index + 1}
+                              </p>
+                              <p className="mt-1 text-lg font-semibold text-white">
+                                {player.player_name}{" "}
+                                <span className="text-slate-400">
+                                  ({player.character})
+                                </span>
                               </p>
                             </div>
-                            <div>
-                              <p className="text-gray-400">Tech Miss Rate</p>
-                              <p className="text-white">
-                                {player.missed_techs}/{player.tech_attempts} (
-                                {player.tech_miss_rate}%)
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400">Aggression</p>
-                              <p className="text-white">
-                                Attack {player.attack_ratio}% / Move{" "}
-                                {player.movement_ratio}%
-                              </p>
+                            <div className="inline-flex w-fit rounded-full border border-purple-400/25 bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-200">
+                              Neutral {player.neutral_win_rate}% • Dmg/Open{" "}
+                              {player.damage_per_opening}
                             </div>
                           </div>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3 text-sm">
-                            <div>
-                              <p className="text-gray-400">Openings per Kill</p>
-                              <p className="text-white">
-                                {player.openings_per_kill ?? "N/A"}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400">Damage per Opening</p>
-                              <p className="text-white">
-                                {player.damage_per_opening}
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400">Neutral Win Rate</p>
-                              <p className="text-white">
-                                {player.neutral_win_rate}%
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400">
-                                Avg Opening Length
-                              </p>
-                              <p className="text-white">
-                                {player.average_opening_length} hits
-                              </p>
-                            </div>
-                            <div>
-                              <p className="text-gray-400">
-                                Defensive Escape Rate
-                              </p>
-                              <p className="text-white">
-                                {player.escaped_punishes}/{player.punishes_faced} (
-                                {player.defensive_escape_rate}%)
-                              </p>
-                            </div>
+
+                          <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2 xl:grid-cols-3">
+                            <StatTile
+                              label="L-Cancel"
+                              value={`${player.l_cancel_rate}%`}
+                              detail={`${player.l_cancel_successes}/${player.l_cancel_attempts} successes`}
+                            />
+                            <StatTile
+                              label="Tech Miss Rate"
+                              value={`${player.tech_miss_rate}%`}
+                              detail={`${player.missed_techs}/${player.tech_attempts} missed`}
+                            />
+                            <StatTile
+                              label="Tech Direction"
+                              value={`L ${player.tech_left_count} • R ${player.tech_right_count} • N ${player.tech_in_place_count}`}
+                            />
+                            <StatTile
+                              label="Aggression"
+                              value={`${player.attack_ratio}% attack`}
+                              detail={`${player.movement_ratio}% movement`}
+                            />
+                            <StatTile
+                              label="Openings per Kill"
+                              value={`${player.openings_per_kill ?? "N/A"}`}
+                              detail={`${player.kills_secured} kills secured`}
+                            />
+                            <StatTile
+                              label="Damage per Opening"
+                              value={`${player.damage_per_opening}`}
+                              detail={`${player.total_damage_inflicted} total damage`}
+                            />
+                            <StatTile
+                              label="Neutral Win Rate"
+                              value={`${player.neutral_win_rate}%`}
+                              detail={`${player.openings_won} openings won`}
+                            />
+                            <StatTile
+                              label="Avg Opening Length"
+                              value={`${player.average_opening_length} hits`}
+                              detail="Average hits per punish"
+                            />
+                            <StatTile
+                              label="Defensive Escape Rate"
+                              value={`${player.defensive_escape_rate}%`}
+                              detail={`${player.escaped_punishes}/${player.punishes_faced} escapes`}
+                            />
                           </div>
                         </div>
                       ))}

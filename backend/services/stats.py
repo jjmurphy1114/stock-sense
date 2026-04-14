@@ -293,6 +293,21 @@ def _ground_id(post_state: Any) -> Any:
     return getattr(post_state, "ground", None)
 
 
+def _facing_direction(player_state: Any) -> float | None:
+    for source in (_get_post_state(player_state), _get_pre_state(player_state), player_state):
+        if source is None:
+            continue
+        for attr in ("facing_direction", "direction", "facing"):
+            value = getattr(source, attr, None)
+            if value is None:
+                continue
+            try:
+                return float(value)
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
 def _get_percent(post_state: Any) -> float | None:
     if post_state is None:
         return None
@@ -323,6 +338,22 @@ def _get_stocks(post_state: Any) -> int | None:
     return None
 
 
+def _tech_direction_bucket(state_name: str, facing_direction: float | None) -> str | None:
+    if not _is_tech_success_state(state_name):
+        return None
+    if "PASSIVE_STAND_F" in state_name:
+        if facing_direction is None:
+            return "right"
+        return "right" if facing_direction >= 0 else "left"
+    if "PASSIVE_STAND_B" in state_name:
+        if facing_direction is None:
+            return "left"
+        return "left" if facing_direction >= 0 else "right"
+    if "PASSIVE" in state_name:
+        return "in_place"
+    return None
+
+
 def _build_player_map(game: Game) -> Dict[int, Dict[str, Any]]:
     player_map: Dict[int, Dict[str, Any]] = {}
 
@@ -335,8 +366,8 @@ def _build_player_map(game: Game) -> Dict[int, Dict[str, Any]]:
         if player is None:
             continue
 
-        nametag = getattr(player, "nametag", "") or ""
-        player_name = nametag.strip() if isinstance(nametag, str) else ""
+        tag = getattr(player, "tag", "") or ""
+        player_name = tag.strip() if isinstance(tag, str) else ""
         if not player_name:
             player_name = f"Player {slot_idx + 1}"
 
@@ -394,6 +425,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "l_cancel_successes": 0,
                 "tech_attempts": 0,
                 "missed_techs": 0,
+                "tech_left_count": 0,
+                "tech_right_count": 0,
+                "tech_in_place_count": 0,
                 "attack_actions": 0,
                 "movement_actions": 0,
                 "openings_won": 0,
@@ -440,6 +474,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                                 "l_cancel_successes": 0,
                                 "tech_attempts": 0,
                                 "missed_techs": 0,
+                                "tech_left_count": 0,
+                                "tech_right_count": 0,
+                                "tech_in_place_count": 0,
                                 "attack_actions": 0,
                                 "movement_actions": 0,
                                 "openings_won": 0,
@@ -467,6 +504,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                         player_stats = per_player_work[player_idx]
                         state_name = _extract_state_name(resolved_player)
                         prev_state = player_stats["_prev_state"]
+                        facing_direction = _facing_direction(resolved_player)
 
                         if _pressed_lr_or_z(resolved_player):
                             player_stats["_lr_buffer"] = 10
@@ -535,6 +573,19 @@ def extract_stats(game: Game) -> Dict[str, Any]:
 
                         if player_stats["_tech_event_active"]:
                             player_stats["_tech_event_frames"] += 1
+
+                        entered_tech_success_state = (
+                            _is_tech_success_state(state_name)
+                            and not _is_tech_success_state(prev_state)
+                        )
+                        if entered_tech_success_state:
+                            tech_direction = _tech_direction_bucket(state_name, facing_direction)
+                            if tech_direction == "left":
+                                player_stats["tech_left_count"] += 1
+                            elif tech_direction == "right":
+                                player_stats["tech_right_count"] += 1
+                            elif tech_direction == "in_place":
+                                player_stats["tech_in_place_count"] += 1
 
                         if player_stats["_tech_event_active"] and not player_stats["_tech_event_resolved"]:
                             if _is_tech_success_state(state_name):
@@ -686,6 +737,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
             l_cancel_successes = player_stats["l_cancel_successes"]
             tech_attempts = player_stats["tech_attempts"]
             missed_techs = player_stats["missed_techs"]
+            tech_left_count = player_stats["tech_left_count"]
+            tech_right_count = player_stats["tech_right_count"]
+            tech_in_place_count = player_stats["tech_in_place_count"]
             attack_actions = player_stats["attack_actions"]
             movement_actions = player_stats["movement_actions"]
             openings_won = player_stats["openings_won"]
@@ -718,6 +772,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                     "tech_attempts": tech_attempts,
                     "missed_techs": missed_techs,
                     "tech_miss_rate": tech_miss_rate,
+                    "tech_left_count": tech_left_count,
+                    "tech_right_count": tech_right_count,
+                    "tech_in_place_count": tech_in_place_count,
                     "attack_actions": attack_actions,
                     "movement_actions": movement_actions,
                     "openings_won": openings_won,

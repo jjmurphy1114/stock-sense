@@ -1,73 +1,180 @@
-# React + TypeScript + Vite
+# Melee Coach
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Melee Coach is a replay-analysis web app for Super Smash Bros. Melee `.slp` files. It combines a React frontend with a FastAPI backend to parse Slippi replays, extract gameplay stats, and turn them into lightweight coaching feedback.
 
-Currently, two official plugins are available:
+## What It Does
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Upload a Slippi replay from the browser
+- Parse player, stage, and match result metadata
+- Show who won and how many stocks each player had left
+- Extract execution, neutral, punish, and defensive stats
+- Surface rule-based coaching insights from the replay
 
-## React Compiler
+## Current Replay Stats
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+The app currently reports a mix of match-level and per-player stats.
 
-## Expanding the ESLint configuration
+### Match Info
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+- Stage
+- Winner
+- Stocks left
+- Match duration
+- Total frames
+- Total actions
+- Players per frame
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+### Per-Player Stats
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+- L-cancel attempts, successes, and rate
+- Tech attempts, missed techs, and tech miss rate
+- Tech direction split: left, right, in place
+- Attack vs movement ratio
+- Openings won
+- Kills secured
+- Total damage inflicted
+- Openings per kill
+- Damage per opening
+- Neutral win rate
+- Average opening length
+- Defensive escape rate
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Coaching Feedback
+
+The backend currently generates rule-based feedback around:
+
+- pace and interaction level
+- neutral control
+- punish efficiency
+- stock-closing efficiency
+- disadvantage escapes
+- execution issues like l-cancels and tech defense
+
+## Tech Stack
+
+- Frontend: React, TypeScript, Vite, Tailwind CSS
+- Backend: FastAPI, py-slippi, Uvicorn
+
+## Project Structure
+
+```text
+melee-coach/
+├── backend/
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── services/
+│   │   ├── feedback.py
+│   │   ├── parser.py
+│   │   └── stats.py
+│   └── README.md
+├── public/
+│   └── stock-icons/
+│       └── README.md
+├── src/
+│   └── components/
+│       └── ReplayAnalyzer.tsx
+├── package.json
+└── README.md
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Getting Started
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### 1. Install frontend dependencies
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
 ```
+
+### 2. Set up the backend virtual environment
+
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cd ..
+```
+
+On Windows PowerShell, activate with:
+
+```powershell
+backend\.venv\Scripts\Activate.ps1
+```
+
+### 3. Run the app
+
+From the project root:
+
+```bash
+npm start
+```
+
+That starts:
+
+- frontend on Vite
+- backend on FastAPI
+
+You can also run them separately:
+
+```bash
+npm run start:frontend
+npm run start:backend
+```
+
+## Available Scripts
+
+```bash
+npm start
+npm run dev
+npm run start:frontend
+npm run start:backend
+npm run build
+npm run lint
+npm run preview
+```
+
+## Backend API
+
+The main endpoint is:
+
+```http
+POST /analyze
+```
+
+Upload a `.slp` file as `multipart/form-data`.
+
+The backend also exposes:
+
+```http
+GET /health
+GET /docs
+```
+
+See [backend/README.md] for backend-specific details.
+
+## Stock Icons
+
+Character stock icons are loaded from:
+
+```text
+public/stock-icons/
+```
+
+Use the filenames listed in [public/stock-icons/README.md].
+
+If an icon is missing, the UI falls back to a small text badge automatically.
+
+## Notes
+
+- The replay parsing and gameplay stats are heuristic-based, not emulator-perfect.
+- Some advanced stats, especially tech and interaction segmentation, are approximations built from Slippi-exposed state data.
+- The app currently works best for standard 1v1 replay analysis.
+
+## Roadmap Ideas
+
+- More reliable punish and tech detection
+- Recovery and ledge-trap analysis
+- Matchup-specific coaching
+- Saved replay history
+- ML-assisted weakness prediction
+- Player trend analysis across many replays

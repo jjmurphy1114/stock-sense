@@ -1,6 +1,6 @@
-# Melee Coach
+# StockSense
 
-Melee Coach is a replay-analysis web app for Super Smash Bros. Melee `.slp` files. It combines a React frontend with a FastAPI backend to parse Slippi replays, extract gameplay stats, and turn them into lightweight coaching feedback.
+StockSense is a replay-analysis web app for Super Smash Bros. Melee `.slp` files. It combines a React frontend with a FastAPI backend to parse Slippi replays, extract gameplay stats, and turn them into lightweight coaching feedback.
 
 ## What It Does
 
@@ -58,7 +58,7 @@ The backend currently generates rule-based feedback around:
 ## Project Structure
 
 ```text
-melee-coach/
+stocksense/
 ├── backend/
 │   ├── main.py
 │   ├── requirements.txt

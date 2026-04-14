@@ -1,4 +1,4 @@
-# Melee Coaching Backend API
+# StockSense Backend API
 
 A minimal FastAPI backend for analyzing Super Smash Bros. Melee replays using Slippi data.
 

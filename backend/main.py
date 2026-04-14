@@ -1,5 +1,5 @@
 """
-Melee Coaching Backend API using FastAPI.
+StockSense backend API using FastAPI.
 Handles .slp replay file uploads and provides analysis.
 """
 
@@ -26,7 +26,7 @@ MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="Melee Coaching API",
+    title="StockSense API",
     description="API for analyzing Super Smash Bros. Melee replays using Slippi data",
     version="0.1.0"
 )
@@ -44,7 +44,7 @@ app.add_middleware(
 @app.get("/health")
 def health_check():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "melee-coaching-api"}
+    return {"status": "healthy", "service": "stocksense-api"}
 
 
 @app.post("/analyze")
@@ -130,7 +130,7 @@ async def analyze_replay(file: UploadFile = File(...)):
 def root():
     """Root endpoint with API documentation."""
     return {
-        "message": "Melee Coaching API",
+        "message": "StockSense API",
         "version": "0.1.0",
         "endpoints": {
             "health": "/health",

@@ -75,6 +75,74 @@ function StatTile({
   );
 }
 
+const characterIconSlugByName: Record<string, string> = {
+  BOWSER: "bowser",
+  CAPTAIN_FALCON: "captain-falcon",
+  DONKEY_KONG: "donkey-kong",
+  DR_MARIO: "dr-mario",
+  FALCO: "falco",
+  FOX: "fox",
+  GAME_AND_WATCH: "mr-game-and-watch",
+  GANONDORF: "ganondorf",
+  ICE_CLIMBERS: "ice-climbers",
+  JIGGLYPUFF: "jigglypuff",
+  KIRBY: "kirby",
+  LINK: "link",
+  LUIGI: "luigi",
+  MARIO: "mario",
+  MARTH: "marth",
+  MEWTWO: "mewtwo",
+  NANA: "ice-climbers",
+  NESS: "ness",
+  PEACH: "peach",
+  PICHU: "pichu",
+  PIKACHU: "pikachu",
+  POPO: "ice-climbers",
+  ROY: "roy",
+  SAMUS: "samus",
+  SHEIK: "sheik",
+  YLINK: "young-link",
+  YOSHI: "yoshi",
+  YOUNG_LINK: "young-link",
+  ZELDA: "zelda",
+};
+
+function getCharacterIconSrc(character: string): string | null {
+  const slug = characterIconSlugByName[character];
+  return slug ? `/stock-icons/${slug}.png` : null;
+}
+
+function CharacterIcon({
+  character,
+  className = "h-8 w-8",
+}: {
+  character: string;
+  className?: string;
+}) {
+  const [hasError, setHasError] = useState(false);
+  const iconSrc = getCharacterIconSrc(character);
+
+  if (!iconSrc || hasError) {
+    return (
+      <div
+        className={`flex items-center justify-center rounded-full border border-slate-600 bg-slate-900/70 text-[10px] font-semibold uppercase tracking-wide text-slate-300 ${className}`}
+        aria-hidden="true"
+      >
+        {character.slice(0, 2)}
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={iconSrc}
+      alt={`${character} stock icon`}
+      className={`rounded-full border border-slate-600/80 bg-slate-900/70 object-contain p-1 ${className}`}
+      onError={() => setHasError(true)}
+    />
+  );
+}
+
 export default function ReplayAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -282,6 +350,10 @@ export default function ReplayAnalyzer() {
                               <span className="text-purple-400 font-semibold">
                                 P{player.player_index + 1}
                               </span>
+                              <CharacterIcon
+                                character={player.character}
+                                className="h-8 w-8"
+                              />
                               <span className="text-white">
                                 {player.character}
                               </span>
@@ -373,8 +445,14 @@ export default function ReplayAnalyzer() {
                               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-purple-300">
                                 Player {player.player_index + 1}
                               </p>
-                              <p className="mt-1 text-lg font-semibold text-white">
-                                {player.player_name}{" "}
+                              <p className="mt-1 flex items-center gap-3 text-lg font-semibold text-white">
+                                <CharacterIcon
+                                  character={player.character}
+                                  className="h-9 w-9"
+                                />
+                                <span>
+                                  {player.player_name}{" "}
+                                </span>
                                 <span className="text-slate-400">
                                   ({player.character})
                                 </span>

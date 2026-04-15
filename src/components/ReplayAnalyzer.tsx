@@ -1,7 +1,11 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import StageHitMap, { getStageLayout } from "./StageHitMap";
-import type { AnalysisResponse } from "./replayAnalysisTypes";
+import TrendDashboard from "./TrendDashboard";
+import type {
+  AnalysisResponse,
+  BatchAnalysisResponse,
+} from "./replayAnalysisTypes";
 
 type AnalysisTab = "overview" | "graph";
 
@@ -119,11 +123,20 @@ function getPlayerFeedbackGroups(analysis: AnalysisResponse) {
 }
 
 export default function ReplayAnalyzer() {
-  const [file, setFile] = useState<File | null>(null);
+  const singleFileInputRef = useRef<HTMLInputElement | null>(null);
+  const folderInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [uploadSource, setUploadSource] = useState<"single" | "folder" | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
-  const [fileName, setFileName] = useState<string>("");
+  const [batchAnalysis, setBatchAnalysis] = useState<BatchAnalysisResponse | null>(
+    null,
+  );
+  const [selectedTag, setSelectedTag] = useState("");
+  const [selectionLabel, setSelectionLabel] = useState<string>("");
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
   const stageDisplayName = getStageLayout(
     analysis?.metadata?.stage,
@@ -132,66 +145,149 @@ export default function ReplayAnalyzer() {
     ? getPlayerFeedbackGroups(analysis)
     : [];
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      if (!selectedFile.name.toLowerCase().endsWith(".slp")) {
-        setError("Please select a valid .slp file");
-        setFile(null);
-        return;
-      }
-      setFile(selectedFile);
-      setFileName(selectedFile.name);
-      setError(null);
+  const directoryPickerProps = {
+    webkitdirectory: "",
+    directory: "",
+  } as React.InputHTMLAttributes<HTMLInputElement>;
+
+  const clearPickerValues = () => {
+    if (singleFileInputRef.current) {
+      singleFileInputRef.current.value = "";
     }
+    if (folderInputRef.current) {
+      folderInputRef.current.value = "";
+    }
+  };
+
+  const handleSingleReplayChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const selectedFile = event.target.files?.[0];
+    if (!selectedFile) {
+      return;
+    }
+
+    if (!selectedFile.name.toLowerCase().endsWith(".slp")) {
+      setError("Please select a valid .slp file");
+      setSelectedFiles([]);
+      setUploadSource(null);
+      return;
+    }
+
+    setSelectedFiles([selectedFile]);
+    setUploadSource("single");
+    setSelectionLabel(selectedFile.name);
+    setError(null);
+  };
+
+  const handleFolderReplayChange = (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const validFiles = Array.from(event.target.files ?? []).filter((file) =>
+      file.name.toLowerCase().endsWith(".slp"),
+    );
+
+    if (validFiles.length === 0) {
+      setError("Please select a folder containing .slp files");
+      setSelectedFiles([]);
+      setUploadSource(null);
+      return;
+    }
+
+    setSelectedFiles(validFiles);
+    setUploadSource("folder");
+    setSelectionLabel(
+      `${validFiles.length} replay${validFiles.length === 1 ? "" : "s"} selected`,
+    );
+    setError(null);
+  };
+
+  const normalizeSingleAnalysis = (rawData: AnalysisResponse): AnalysisResponse => {
+    return {
+      ...rawData,
+      stats: {
+        ...rawData.stats,
+        hit_locations: rawData.stats?.hit_locations ?? [],
+        per_player: rawData.stats?.per_player ?? [],
+      },
+      feedback: rawData.feedback ?? [],
+      metadata: rawData.metadata
+        ? {
+            ...rawData.metadata,
+            players: rawData.metadata.players ?? [],
+          }
+        : undefined,
+    };
+  };
+
+  const normalizeBatchResponse = (
+    rawData: BatchAnalysisResponse,
+  ): BatchAnalysisResponse => {
+    return {
+      ...rawData,
+      replays: (rawData.replays ?? []).map((replay) => ({
+        ...normalizeSingleAnalysis(replay),
+        filename: replay.filename,
+      })),
+      available_tags: rawData.available_tags ?? [],
+      failed_files: rawData.failed_files ?? [],
+    };
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!file) {
-      setError("Please select a .slp file");
+    if (selectedFiles.length === 0 || !uploadSource) {
+      setError("Please choose either a single replay or a replay folder");
       return;
     }
 
     setLoading(true);
     setError(null);
     setAnalysis(null);
+    setBatchAnalysis(null);
 
     try {
       const formData = new FormData();
-      formData.append("file", file);
+      const isBatchUpload = uploadSource === "folder" || selectedFiles.length > 1;
+      if (isBatchUpload) {
+        selectedFiles.forEach((file) => {
+          formData.append("files", file);
+        });
+      } else {
+        formData.append("file", selectedFiles[0]);
+      }
 
-      const response = await fetch("/api/analyze", {
+      const response = await fetch(isBatchUpload ? "/api/analyze-batch" : "/api/analyze", {
         method: "POST",
         body: formData,
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.detail || "Failed to analyze replay");
+        const detail =
+          typeof errorData.detail === "string"
+            ? errorData.detail
+            : errorData.detail?.message || "Failed to analyze replay";
+        throw new Error(detail);
       }
 
-      const rawData: AnalysisResponse = await response.json();
-      const data: AnalysisResponse = {
-        ...rawData,
-        stats: {
-          ...rawData.stats,
-          hit_locations: rawData.stats?.hit_locations ?? [],
-          per_player: rawData.stats?.per_player ?? [],
-        },
-        feedback: rawData.feedback ?? [],
-        metadata: rawData.metadata
-          ? {
-              ...rawData.metadata,
-              players: rawData.metadata.players ?? [],
-            }
-          : undefined,
-      };
-      setAnalysis(data);
-      setActiveTab("overview");
-      setFile(null);
-      setFileName("");
+      if (isBatchUpload) {
+        const rawData: BatchAnalysisResponse = await response.json();
+        const data = normalizeBatchResponse(rawData);
+        setBatchAnalysis(data);
+        setSelectedTag(data.available_tags[0] ?? "");
+      } else {
+        const rawData: AnalysisResponse = await response.json();
+        const data = normalizeSingleAnalysis(rawData);
+        setAnalysis(data);
+        setActiveTab("overview");
+      }
+
+      setSelectedFiles([]);
+      setUploadSource(null);
+      setSelectionLabel("");
+      clearPickerValues();
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
@@ -226,10 +322,10 @@ export default function ReplayAnalyzer() {
                 <h2 className="text-2xl font-bold text-white mb-2">
                   Upload Replay
                 </h2>
-                {analysis && (
+                {(analysis || batchAnalysis) && (
                   <p className="text-sm text-purple-200">
-                    Game loaded. Upload another `.slp` file to replace this
-                    analysis.
+                    Analysis loaded. Choose another replay or folder to replace
+                    it.
                   </p>
                 )}
               </div>
@@ -242,22 +338,75 @@ export default function ReplayAnalyzer() {
                     : "space-y-6"
                 }`}
               >
-                {/* File Input */}
-                <div className="relative">
-                  {!analysis && (
-                    <label className="block text-sm font-medium text-purple-200 mb-3">
-                      Select .slp file
+                <div className="space-y-3">
+                  {!analysis && !batchAnalysis && (
+                    <label className="block text-sm font-medium text-purple-200">
+                      Choose one upload path
                     </label>
                   )}
+
                   <input
+                    ref={singleFileInputRef}
                     type="file"
                     accept=".slp"
-                    onChange={handleFileChange}
+                    onChange={handleSingleReplayChange}
                     disabled={loading}
-                    className="w-full px-4 py-3 bg-slate-700 border-2 border-dashed border-purple-400/50 rounded-lg text-white placeholder-gray-400 cursor-pointer hover:border-purple-400 transition disabled:opacity-50"
+                    className="hidden"
                   />
-                  {fileName && (
-                    <p className="text-sm text-green-400 mt-2">✓ {fileName}</p>
+                  <input
+                    ref={folderInputRef}
+                    type="file"
+                    accept=".slp"
+                    multiple
+                    onChange={handleFolderReplayChange}
+                    disabled={loading}
+                    className="hidden"
+                    {...directoryPickerProps}
+                  />
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <button
+                      type="button"
+                      onClick={() => singleFileInputRef.current?.click()}
+                      disabled={loading}
+                      className={`rounded-xl border px-4 py-4 text-left transition ${
+                        uploadSource === "single"
+                          ? "border-purple-400 bg-purple-500/15 text-white"
+                          : "border-purple-400/30 bg-slate-700/60 text-slate-100 hover:border-purple-400"
+                      } disabled:opacity-50`}
+                    >
+                      <p className="text-sm font-semibold">Single Replay</p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        Analyze one `.slp` file with the full per-game report.
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => folderInputRef.current?.click()}
+                      disabled={loading}
+                      className={`rounded-xl border px-4 py-4 text-left transition ${
+                        uploadSource === "folder"
+                          ? "border-purple-400 bg-purple-500/15 text-white"
+                          : "border-purple-400/30 bg-slate-700/60 text-slate-100 hover:border-purple-400"
+                      } disabled:opacity-50`}
+                    >
+                      <p className="text-sm font-semibold">Replay Folder</p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        Upload a folder of `.slp` files to track trends by
+                        Slippi tag.
+                      </p>
+                    </button>
+                  </div>
+
+                  {selectionLabel && (
+                    <p className="text-sm text-green-400">✓ {selectionLabel}</p>
+                  )}
+                  {uploadSource === "folder" && selectedFiles.length > 0 && (
+                    <p className="text-xs text-slate-400">
+                      Batch mode will match your player across replays using the
+                      selected Slippi tag.
+                    </p>
                   )}
                 </div>
 
@@ -271,17 +420,22 @@ export default function ReplayAnalyzer() {
                 {/* Submit Button */}
                 <button
                   type="submit"
-                  disabled={!file || loading}
+                  disabled={selectedFiles.length === 0 || loading}
                   className={`px-6 py-3 bg-linear-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed ${
                     analysis ? "lg:self-start" : "w-full"
                   }`}
                 >
                   {loading ? (
                     <span className="flex items-center justify-center gap-2">
-                      <span className="animate-spin">⚙️</span> Analyzing...
+                      <span className="animate-spin">⚙️</span>{" "}
+                      {uploadSource === "folder"
+                        ? "Analyzing folder..."
+                        : "Analyzing..."}
                     </span>
                   ) : (
-                    "Analyze Replay"
+                    uploadSource === "folder"
+                      ? "Analyze Trends"
+                      : "Analyze Replay"
                   )}
                 </button>
               </form>
@@ -605,6 +759,23 @@ export default function ReplayAnalyzer() {
                     key={`${analysis.stats.total_frames}-${analysis.stats.hit_locations.length}-${analysis.metadata?.stage ?? "unknown"}`}
                     analysis={analysis}
                   />
+                )}
+              </div>
+            )}
+
+            {batchAnalysis && (
+              <div className="bg-slate-800 rounded-xl shadow-2xl p-8 border border-green-500/20">
+                {batchAnalysis.available_tags.length > 0 ? (
+                  <TrendDashboard
+                    batchAnalysis={batchAnalysis}
+                    selectedTag={selectedTag}
+                    onSelectTag={setSelectedTag}
+                  />
+                ) : (
+                  <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
+                    The uploaded replays were parsed, but no non-empty Slippi
+                    tags were found to match a player across games.
+                  </div>
                 )}
               </div>
             )}

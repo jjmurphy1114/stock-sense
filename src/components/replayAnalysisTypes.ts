@@ -71,3 +71,18 @@ export interface AnalysisResponse {
     winner_name?: string | null;
   };
 }
+
+export interface ReplayAnalysisWithFile extends AnalysisResponse {
+  filename: string;
+}
+
+export interface BatchFailure {
+  filename: string;
+  error: string;
+}
+
+export interface BatchAnalysisResponse {
+  replays: ReplayAnalysisWithFile[];
+  available_tags: string[];
+  failed_files: BatchFailure[];
+}

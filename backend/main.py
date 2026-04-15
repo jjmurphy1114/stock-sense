@@ -5,6 +5,7 @@ Handles .slp replay file uploads and provides analysis.
 
 import os
 from pathlib import Path
+from uuid import uuid4
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -61,20 +62,88 @@ async def analyze_replay(file: UploadFile = File(...)):
             detail="Missing filename in uploaded form data."
         )
 
+    try:
+        return await _analyze_uploaded_replay(file)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error processing replay: {str(e)}"
+        )
+
+
+@app.post("/analyze-batch")
+async def analyze_replay_batch(files: list[UploadFile] = File(...)):
+    """Upload and analyze multiple Slippi replays for trend tracking."""
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload at least one .slp replay file."
+        )
+
+    replay_results = []
+    failed_files = []
+    available_tags = set()
+
+    for file in files:
+        if not file.filename:
+            failed_files.append({
+                "filename": "unknown-file",
+                "error": "Missing filename in uploaded form data.",
+            })
+            continue
+
+        try:
+            analysis = await _analyze_uploaded_replay(file)
+            replay_results.append({
+                "filename": Path(file.filename).name,
+                **analysis,
+            })
+
+            for player in analysis.get("metadata", {}).get("players", []):
+                tag = (player.get("tag") or "").strip()
+                if tag and not player.get("is_cpu", False):
+                    available_tags.add(tag)
+        except HTTPException as exc:
+            failed_files.append({
+                "filename": Path(file.filename).name,
+                "error": str(exc.detail),
+            })
+        except Exception as exc:
+            failed_files.append({
+                "filename": Path(file.filename).name,
+                "error": f"Error processing replay: {str(exc)}",
+            })
+
+    if not replay_results and failed_files:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "None of the uploaded replay files could be processed.",
+                "failed_files": failed_files,
+            }
+        )
+
+    return {
+        "replays": replay_results,
+        "available_tags": sorted(available_tags),
+        "failed_files": failed_files,
+    }
+
+
+async def _analyze_uploaded_replay(file: UploadFile):
     safe_filename = Path(file.filename).name
 
-    # Validate file type (case-insensitive)
     if Path(safe_filename).suffix.lower() != ".slp":
         raise HTTPException(
             status_code=400,
             detail="Invalid file type. Please upload a .slp (Slippi replay) file."
         )
-    
-    # Save uploaded file temporarily
-    temp_file_path = TEMP_DIR / safe_filename
-    
+
+    temp_file_path = TEMP_DIR / f"{uuid4()}-{safe_filename}"
+
     try:
-        # Save file
         with open(temp_file_path, "wb") as buffer:
             content = await file.read()
             if len(content) > MAX_FILE_SIZE:
@@ -88,8 +157,7 @@ async def analyze_replay(file: UploadFile = File(...)):
                     detail="Uploaded file is empty."
                 )
             buffer.write(content)
-        
-        # Parse the replay file
+
         try:
             game = load_replay(str(temp_file_path))
         except ReplayParseError as e:
@@ -98,27 +166,16 @@ async def analyze_replay(file: UploadFile = File(...)):
                 detail=f"Failed to parse replay file: {e}"
             ) from e
         
-        # Extract data
         metadata = extract_metadata(game)
         stats = extract_stats(game)
         feedback = generate_feedback(stats)
-        
-        # Format response
+
         response = format_feedback_response(stats, feedback)
         response["metadata"] = metadata
-        
+
         return response
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing replay: {str(e)}"
-        )
-    
+
     finally:
-        # Clean up temp file
         if temp_file_path.exists():
             try:
                 os.remove(temp_file_path)

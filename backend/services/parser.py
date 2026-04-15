@@ -49,12 +49,23 @@ def extract_metadata(game: Game) -> Dict[str, Any]:
         
         if start and hasattr(start, 'players'):
             players_info = []
+            metadata_players = getattr(getattr(game, "metadata", None), "players", None)
             for player_idx, player in enumerate(start.players):
                 if player:
+                    identity = _extract_player_identity(
+                        metadata_players[player_idx]
+                        if metadata_players and player_idx < len(metadata_players)
+                        else None,
+                        player,
+                        player_idx,
+                    )
                     player_data = {
                         "player_index": player_idx,
                         "character": player.character.name if hasattr(player.character, 'name') else str(player.character),
-                        "tag": player.tag if hasattr(player, 'tag') else "Unknown",
+                        "tag": identity["tag"],
+                        "connect_code": identity["connect_code"],
+                        "netplay_name": identity["netplay_name"],
+                        "name_tag": identity["name_tag"],
                         "is_cpu": player.is_cpu if hasattr(player, 'is_cpu') else False,
                         "stocks_left": None,
                         "did_win": False,
@@ -85,6 +96,41 @@ def extract_metadata(game: Game) -> Dict[str, Any]:
         metadata["error"] = str(e)
     
     return metadata
+
+
+def _extract_player_identity(
+    metadata_player: Any,
+    start_player: Any,
+    player_idx: int,
+) -> Dict[str, Optional[str]]:
+    name_tag = getattr(start_player, "tag", None)
+    if isinstance(name_tag, str):
+        name_tag = name_tag.strip() or None
+    else:
+        name_tag = None
+
+    netplay = getattr(metadata_player, "netplay", None) if metadata_player is not None else None
+    connect_code = getattr(netplay, "code", None) if netplay is not None else None
+    netplay_name = getattr(netplay, "name", None) if netplay is not None else None
+
+    if isinstance(connect_code, str):
+      connect_code = connect_code.strip() or None
+    else:
+      connect_code = None
+
+    if isinstance(netplay_name, str):
+      netplay_name = netplay_name.strip() or None
+    else:
+      netplay_name = None
+
+    preferred_tag = connect_code or netplay_name or name_tag or f"Player {player_idx + 1}"
+
+    return {
+        "tag": preferred_tag,
+        "connect_code": connect_code,
+        "netplay_name": netplay_name,
+        "name_tag": name_tag,
+    }
 
 
 def get_frame_count(game: Game) -> int:

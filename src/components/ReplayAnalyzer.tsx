@@ -275,14 +275,16 @@ function getStageLayout(stage?: string): StageLayout {
   if (!stage) {
     return defaultStageLayout;
   }
-  return stageLayouts[stage] ?? {
-    ...defaultStageLayout,
-    displayName: stage
-      .toLowerCase()
-      .split("_")
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-      .join(" "),
-  };
+  return (
+    stageLayouts[stage] ?? {
+      ...defaultStageLayout,
+      displayName: stage
+        .toLowerCase()
+        .split("_")
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" "),
+    }
+  );
 }
 
 function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
@@ -366,7 +368,9 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
               >
                 <span
                   className="h-2.5 w-2.5 rounded-full"
-                  style={{ backgroundColor: playerColors[index % playerColors.length] }}
+                  style={{
+                    backgroundColor: playerColors[index % playerColors.length],
+                  }}
                 />
                 <span>
                   {player.player_name} ({player.character}) • {hitCount} hits
@@ -456,13 +460,16 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
             const playerIndex = analysis.stats.per_player.findIndex(
               (player) => player.player_index === location.player_index,
             );
-            const fill = playerColors[
-              (playerIndex >= 0 ? playerIndex : 0) % playerColors.length
-            ];
+            const fill =
+              playerColors[
+                (playerIndex >= 0 ? playerIndex : 0) % playerColors.length
+              ];
             const radius = Math.min(6.5, 3 + location.damage_taken / 4);
 
             return (
-              <g key={`${location.player_index}-${location.frame_index}-${index}`}>
+              <g
+                key={`${location.player_index}-${location.frame_index}-${index}`}
+              >
                 <circle
                   cx={location.x}
                   cy={-location.y}
@@ -490,9 +497,10 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
       </div>
 
       <p className="mt-3 text-xs text-slate-400">
-        Showing {visibleHitLocations.length} hit{visibleHitLocations.length === 1 ? "" : "s"}.
-        Larger dots mean more damage from that hit. White-ringed dots mark hits
-        that also coincided with a stock loss.
+        Showing {visibleHitLocations.length} hit
+        {visibleHitLocations.length === 1 ? "" : "s"}. Larger dots mean more
+        damage from that hit. White-ringed dots mark hits that also coincided
+        with a stock loss.
       </p>
     </div>
   );
@@ -528,7 +536,9 @@ export default function ReplayAnalyzer() {
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [fileName, setFileName] = useState<string>("");
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
-  const stageDisplayName = getStageLayout(analysis?.metadata?.stage).displayName;
+  const stageDisplayName = getStageLayout(
+    analysis?.metadata?.stage,
+  ).displayName;
   const playerFeedbackGroups = analysis
     ? getPlayerFeedbackGroups(analysis)
     : [];
@@ -609,9 +619,7 @@ export default function ReplayAnalyzer() {
           <p className="text-purple-200 text-lg">AI-Powered Replay Analysis</p>
         </div>
 
-        <div
-          className={`grid gap-8 ${analysis ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}
-        >
+        <div className={"grid gap-8 justify-center"}>
           {/* Upload Section */}
           <div
             className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
@@ -640,7 +648,9 @@ export default function ReplayAnalyzer() {
               <form
                 onSubmit={handleSubmit}
                 className={`${
-                  analysis ? "flex flex-col gap-3 lg:min-w-[28rem]" : "space-y-6"
+                  analysis
+                    ? "flex flex-col gap-3 lg:min-w-[28rem]"
+                    : "space-y-6"
                 }`}
               >
                 {/* File Input */}
@@ -692,9 +702,8 @@ export default function ReplayAnalyzer() {
             {!analysis && (
               <div className="mt-8 p-4 bg-slate-700/50 rounded-lg border border-purple-400/20">
                 <p className="text-xs text-gray-300">
-                  💡 <strong>Tip:</strong> Upload your Slippi replay files
-                  (.slp) to receive instant coaching feedback based on your
-                  gameplay stats.
+                  Upload your Slippi replay files (.slp) to receive instant
+                  coaching feedback based on your gameplay stats.
                 </p>
               </div>
             )}
@@ -868,14 +877,16 @@ export default function ReplayAnalyzer() {
                                       key={`${player.player_index}-${idx}`}
                                       className="rounded-lg border-l-4 border-purple-500 bg-slate-700/50 p-3"
                                     >
-                                      <p className="text-sm text-white">{item}</p>
+                                      <p className="text-sm text-white">
+                                        {item}
+                                      </p>
                                     </div>
                                   ))
                                 ) : (
                                   <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
                                     <p className="text-sm text-slate-300">
-                                      No player-specific coaching notes were generated
-                                      for this replay.
+                                      No player-specific coaching notes were
+                                      generated for this replay.
                                     </p>
                                   </div>
                                 )}
@@ -919,9 +930,7 @@ export default function ReplayAnalyzer() {
                                       character={player.character}
                                       className="h-9 w-9"
                                     />
-                                    <span>
-                                      {player.player_name}{" "}
-                                    </span>
+                                    <span>{player.player_name} </span>
                                     <span className="text-slate-400">
                                       ({player.character})
                                     </span>
@@ -1003,14 +1012,6 @@ export default function ReplayAnalyzer() {
                 )}
 
                 {activeTab === "graph" && <StageHitMap analysis={analysis} />}
-              </div>
-            )}
-
-            {!analysis && !loading && (
-              <div className="bg-slate-800 rounded-xl shadow-2xl p-8 border border-slate-700/50 text-center">
-                <p className="text-gray-400">
-                  Upload a replay to see analysis results here
-                </p>
               </div>
             )}
           </div>

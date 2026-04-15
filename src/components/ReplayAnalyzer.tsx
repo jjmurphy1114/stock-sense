@@ -5,7 +5,6 @@ interface AnalysisResponse {
     total_frames: number;
     total_actions: number;
     match_duration_seconds: number;
-    players_per_frame: number;
     per_player: Array<{
       player_index: number;
       player_name: string;
@@ -19,6 +18,10 @@ interface AnalysisResponse {
       tech_left_count: number;
       tech_right_count: number;
       tech_in_place_count: number;
+      actions_per_minute: number;
+      ledge_grabs: number;
+      wavedashes: number;
+      wavelands: number;
       attack_actions: number;
       movement_actions: number;
       openings_won: number;
@@ -30,7 +33,6 @@ interface AnalysisResponse {
       damage_per_opening: number;
       neutral_win_rate: number;
       average_opening_length: number;
-      defensive_escape_rate: number;
       attack_ratio: number;
       movement_ratio: number;
     }>;
@@ -143,12 +145,38 @@ function CharacterIcon({
   );
 }
 
+function getPlayerFeedbackGroups(analysis: AnalysisResponse) {
+  const perPlayer = analysis.stats.per_player;
+
+  return perPlayer.map((player) => {
+    const playerNumberLabel = `Player ${player.player_index + 1}`;
+    const exactName = player.player_name.trim();
+
+    const items = analysis.feedback.filter((entry) => {
+      return (
+        entry.includes(exactName) ||
+        entry.includes(playerNumberLabel) ||
+        entry.includes(`${player.character} vs`) ||
+        entry.includes(`In ${player.character} vs`)
+      );
+    });
+
+    return {
+      ...player,
+      feedback: items,
+    };
+  });
+}
+
 export default function ReplayAnalyzer() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [fileName, setFileName] = useState<string>("");
+  const playerFeedbackGroups = analysis
+    ? getPlayerFeedbackGroups(analysis)
+    : [];
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -402,12 +430,6 @@ export default function ReplayAnalyzer() {
                         {analysis.stats.total_actions}
                       </p>
                     </div>
-                    <div className="bg-slate-700/50 rounded-lg p-3">
-                      <p className="text-gray-400 text-xs">Intensity</p>
-                      <p className="text-white font-bold text-lg">
-                        {analysis.stats.players_per_frame}
-                      </p>
-                    </div>
                   </div>
                 </div>
 
@@ -416,16 +438,65 @@ export default function ReplayAnalyzer() {
                   <h3 className="text-sm font-semibold text-purple-300 uppercase">
                     Coaching Feedback
                   </h3>
-                  <div className="space-y-2">
-                    {analysis.feedback.map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="bg-slate-700/50 rounded-lg p-3 border-l-4 border-purple-500"
-                      >
-                        <p className="text-white text-sm">{item}</p>
-                      </div>
-                    ))}
-                  </div>
+                  {playerFeedbackGroups.length > 0 ? (
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      {playerFeedbackGroups.map((player) => (
+                        <div
+                          key={player.player_index}
+                          className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4"
+                        >
+                          <div className="mb-3 flex items-center gap-3 border-b border-slate-700 pb-3">
+                            <CharacterIcon
+                              character={player.character}
+                              className="h-9 w-9"
+                            />
+                            <div>
+                              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-purple-300">
+                                Player {player.player_index + 1}
+                              </p>
+                              <p className="text-sm font-semibold text-white">
+                                {player.player_name}{" "}
+                                <span className="text-slate-400">
+                                  ({player.character})
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            {player.feedback.length > 0 ? (
+                              player.feedback.map((item, idx) => (
+                                <div
+                                  key={`${player.player_index}-${idx}`}
+                                  className="rounded-lg border-l-4 border-purple-500 bg-slate-700/50 p-3"
+                                >
+                                  <p className="text-sm text-white">{item}</p>
+                                </div>
+                              ))
+                            ) : (
+                              <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+                                <p className="text-sm text-slate-300">
+                                  No player-specific coaching notes were generated
+                                  for this replay.
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {analysis.feedback.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-slate-700/50 rounded-lg p-3 border-l-4 border-purple-500"
+                        >
+                          <p className="text-white text-sm">{item}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 {/* Per-Player Advanced Stats */}
@@ -480,9 +551,29 @@ export default function ReplayAnalyzer() {
                               value={`L ${player.tech_left_count} • R ${player.tech_right_count} • N ${player.tech_in_place_count}`}
                             />
                             <StatTile
+                              label="APM"
+                              value={`${player.actions_per_minute}`}
+                              detail="Action-state changes per minute"
+                            />
+                            <StatTile
                               label="Aggression"
                               value={`${player.attack_ratio}% attack`}
                               detail={`${player.movement_ratio}% movement`}
+                            />
+                            <StatTile
+                              label="Ledge Grabs"
+                              value={`${player.ledge_grabs}`}
+                              detail="Times the ledge was caught"
+                            />
+                            <StatTile
+                              label="Wavedashes"
+                              value={`${player.wavedashes}`}
+                              detail="Grounded air-dodge landings"
+                            />
+                            <StatTile
+                              label="Wavelands"
+                              value={`${player.wavelands}`}
+                              detail="Platform or aerial air-dodge landings"
                             />
                             <StatTile
                               label="Openings per Kill"
@@ -503,11 +594,6 @@ export default function ReplayAnalyzer() {
                               label="Avg Opening Length"
                               value={`${player.average_opening_length} hits`}
                               detail="Average hits per punish"
-                            />
-                            <StatTile
-                              label="Defensive Escape Rate"
-                              value={`${player.defensive_escape_rate}%`}
-                              detail={`${player.escaped_punishes}/${player.punishes_faced} escapes`}
                             />
                           </div>
                         </div>

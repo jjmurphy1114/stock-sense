@@ -216,6 +216,18 @@ def _is_movement_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in MOVEMENT_KEYWORDS)
 
 
+def _is_ledge_grab_state(state_name: str) -> bool:
+    return "CLIFF_CATCH" in state_name
+
+
+def _is_air_dodge_state(state_name: str) -> bool:
+    return "ESCAPE_AIR" in state_name
+
+
+def _is_fall_special_landing_state(state_name: str) -> bool:
+    return "LANDING_FALL_SPECIAL" in state_name
+
+
 def _is_tech_success_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in TECH_SUCCESS_KEYWORDS)
 
@@ -428,6 +440,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "tech_left_count": 0,
                 "tech_right_count": 0,
                 "tech_in_place_count": 0,
+                "ledge_grabs": 0,
+                "wavedashes": 0,
+                "wavelands": 0,
                 "attack_actions": 0,
                 "movement_actions": 0,
                 "openings_won": 0,
@@ -435,6 +450,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "total_damage_inflicted": 0.0,
                 "punishes_faced": 0,
                 "escaped_punishes": 0,
+                "_action_state_changes": 0,
                 "_opening_hits_landed": 0,
                 "_prev_state": "",
                 "_lr_buffer": 0,
@@ -447,6 +463,10 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "_active_punish_by": None,
                 "_punish_hit_count": 0,
                 "_punish_frames_since_hit": 0,
+                "_frames_since_grounded": 0,
+                "_air_dodge_active": False,
+                "_air_dodge_frames": 0,
+                "_air_dodge_from_ground": False,
                 "_tech_event_active": False,
                 "_tech_event_resolved": False,
                 "_tech_event_frames": 0,
@@ -477,6 +497,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                                 "tech_left_count": 0,
                                 "tech_right_count": 0,
                                 "tech_in_place_count": 0,
+                                "ledge_grabs": 0,
+                                "wavedashes": 0,
+                                "wavelands": 0,
                                 "attack_actions": 0,
                                 "movement_actions": 0,
                                 "openings_won": 0,
@@ -484,6 +507,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                                 "total_damage_inflicted": 0.0,
                                 "punishes_faced": 0,
                                 "escaped_punishes": 0,
+                                "_action_state_changes": 0,
                                 "_opening_hits_landed": 0,
                                 "_prev_state": "",
                                 "_lr_buffer": 0,
@@ -496,6 +520,10 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                                 "_active_punish_by": None,
                                 "_punish_hit_count": 0,
                                 "_punish_frames_since_hit": 0,
+                                "_frames_since_grounded": 0,
+                                "_air_dodge_active": False,
+                                "_air_dodge_frames": 0,
+                                "_air_dodge_from_ground": False,
                                 "_tech_event_active": False,
                                 "_tech_event_resolved": False,
                                 "_tech_event_frames": 0,
@@ -505,6 +533,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                         state_name = _extract_state_name(resolved_player)
                         prev_state = player_stats["_prev_state"]
                         facing_direction = _facing_direction(resolved_player)
+
+                        if prev_state and state_name != prev_state:
+                            player_stats["_action_state_changes"] += 1
 
                         if _pressed_lr_or_z(resolved_player):
                             player_stats["_lr_buffer"] = 10
@@ -523,6 +554,57 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                         hitlag_now = _is_in_hitlag(post_state)
                         airborne_now = _is_airborne(post_state, state_name)
                         ground_now = _ground_id(post_state)
+
+                        if airborne_now:
+                            player_stats["_frames_since_grounded"] += 1
+                        else:
+                            player_stats["_frames_since_grounded"] = 0
+
+                        entered_ledge_grab_state = (
+                            _is_ledge_grab_state(state_name)
+                            and not _is_ledge_grab_state(prev_state)
+                        )
+                        if entered_ledge_grab_state:
+                            player_stats["ledge_grabs"] += 1
+
+                        entered_air_dodge_state = (
+                            _is_air_dodge_state(state_name)
+                            and not _is_air_dodge_state(prev_state)
+                        )
+                        if entered_air_dodge_state:
+                            player_stats["_air_dodge_active"] = True
+                            player_stats["_air_dodge_frames"] = 0
+                            player_stats["_air_dodge_from_ground"] = (
+                                player_stats["_frames_since_grounded"] <= 5
+                            )
+
+                        if player_stats["_air_dodge_active"]:
+                            player_stats["_air_dodge_frames"] += 1
+
+                        entered_fall_special_landing_state = (
+                            _is_fall_special_landing_state(state_name)
+                            and not _is_fall_special_landing_state(prev_state)
+                        )
+                        if (
+                            entered_fall_special_landing_state
+                            and player_stats["_air_dodge_active"]
+                            and player_stats["_air_dodge_frames"] <= 8
+                        ):
+                            if player_stats["_air_dodge_from_ground"]:
+                                player_stats["wavedashes"] += 1
+                            else:
+                                player_stats["wavelands"] += 1
+                            player_stats["_air_dodge_active"] = False
+                            player_stats["_air_dodge_frames"] = 0
+                            player_stats["_air_dodge_from_ground"] = False
+                        elif (
+                            player_stats["_air_dodge_active"]
+                            and player_stats["_air_dodge_frames"] > 12
+                            and not _is_air_dodge_state(state_name)
+                        ):
+                            player_stats["_air_dodge_active"] = False
+                            player_stats["_air_dodge_frames"] = 0
+                            player_stats["_air_dodge_from_ground"] = False
 
                         # Prefer built-in Slippi l-cancel signal when available.
                         l_cancel_value = getattr(post_state, "l_cancel", None) if post_state is not None else None
@@ -740,6 +822,9 @@ def extract_stats(game: Game) -> Dict[str, Any]:
             tech_left_count = player_stats["tech_left_count"]
             tech_right_count = player_stats["tech_right_count"]
             tech_in_place_count = player_stats["tech_in_place_count"]
+            ledge_grabs = player_stats["ledge_grabs"]
+            wavedashes = player_stats["wavedashes"]
+            wavelands = player_stats["wavelands"]
             attack_actions = player_stats["attack_actions"]
             movement_actions = player_stats["movement_actions"]
             openings_won = player_stats["openings_won"]
@@ -748,15 +833,19 @@ def extract_stats(game: Game) -> Dict[str, Any]:
             punishes_faced = player_stats["punishes_faced"]
             escaped_punishes = player_stats["escaped_punishes"]
             opening_hits_landed = player_stats["_opening_hits_landed"]
+            action_state_changes = player_stats["_action_state_changes"]
 
             l_cancel_rate = round((l_cancel_successes / l_cancel_attempts) * 100, 1) if l_cancel_attempts else 0.0
             tech_miss_rate = round((missed_techs / tech_attempts) * 100, 1) if tech_attempts else 0.0
+            actions_per_minute = (
+                round(action_state_changes / (stats["match_duration_seconds"] / 60), 1)
+                if stats["match_duration_seconds"] > 0
+                else 0.0
+            )
             openings_per_kill = round((openings_won / kills_secured), 2) if kills_secured else None
             damage_per_opening = round((total_damage_inflicted / openings_won), 1) if openings_won else 0.0
             neutral_win_rate = round((openings_won / total_openings) * 100, 1) if total_openings else 0.0
             average_opening_length = round((opening_hits_landed / openings_won), 2) if openings_won else 0.0
-            defensive_escape_rate = round((escaped_punishes / punishes_faced) * 100, 1) if punishes_faced else 0.0
-
             behavior_total = attack_actions + movement_actions
             attack_ratio = round((attack_actions / behavior_total) * 100, 1) if behavior_total else 0.0
             movement_ratio = round((movement_actions / behavior_total) * 100, 1) if behavior_total else 0.0
@@ -775,6 +864,10 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                     "tech_left_count": tech_left_count,
                     "tech_right_count": tech_right_count,
                     "tech_in_place_count": tech_in_place_count,
+                    "actions_per_minute": actions_per_minute,
+                    "ledge_grabs": ledge_grabs,
+                    "wavedashes": wavedashes,
+                    "wavelands": wavelands,
                     "attack_actions": attack_actions,
                     "movement_actions": movement_actions,
                     "openings_won": openings_won,
@@ -786,7 +879,6 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                     "damage_per_opening": damage_per_opening,
                     "neutral_win_rate": neutral_win_rate,
                     "average_opening_length": average_opening_length,
-                    "defensive_escape_rate": defensive_escape_rate,
                     "attack_ratio": attack_ratio,
                     "movement_ratio": movement_ratio,
                 }

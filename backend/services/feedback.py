@@ -457,6 +457,7 @@ def format_feedback_response(stats: Dict[str, Any], feedback_list: List[str]) ->
             "total_actions": stats.get("total_actions", 0),
             "match_duration_seconds": stats.get("match_duration_seconds", 0),
             "players_per_frame": stats.get("players_per_frame", 0),
+            "hit_locations": stats.get("hit_locations", []),
             "per_player": stats.get("per_player", []),
         },
         "feedback": feedback_list,

@@ -350,6 +350,31 @@ def _get_stocks(post_state: Any) -> int | None:
     return None
 
 
+def _get_position(post_state: Any) -> tuple[float, float] | None:
+    if post_state is None:
+        return None
+
+    position = getattr(post_state, "position", None)
+    if position is not None:
+        x_value = getattr(position, "x", None)
+        y_value = getattr(position, "y", None)
+        if x_value is not None and y_value is not None:
+            try:
+                return (float(x_value), float(y_value))
+            except (TypeError, ValueError):
+                return None
+
+    x_value = getattr(post_state, "x", None)
+    y_value = getattr(post_state, "y", None)
+    if x_value is None or y_value is None:
+        return None
+
+    try:
+        return (float(x_value), float(y_value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _tech_direction_bucket(state_name: str, facing_direction: float | None) -> str | None:
     if not _is_tech_success_state(state_name):
         return None
@@ -412,6 +437,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
         "total_actions": 0,
         "match_duration_seconds": 0.0,
         "players_per_frame": 0,
+        "hit_locations": [],
         "per_player": [],
     }
     
@@ -472,7 +498,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "_tech_event_frames": 0,
             }
         
-        for _, frame in frame_items:
+        for frame_index, frame in frame_items:
             if frame is None:
                 continue
             
@@ -550,6 +576,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                         post_state = _get_post_state(resolved_player)
                         percent_now = _get_percent(post_state)
                         stocks_now = _get_stocks(post_state)
+                        position_now = _get_position(post_state)
                         hitstun_now = _is_in_hitstun(post_state)
                         hitlag_now = _is_in_hitlag(post_state)
                         airborne_now = _is_airborne(post_state, state_name)
@@ -708,7 +735,38 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                             "hitlag": hitlag_now,
                             "percent": percent_now,
                             "stocks": stocks_now,
+                            "position": position_now,
                         }
+
+            for player_idx, snapshot in frame_snapshots.items():
+                player_stats = per_player_work[player_idx]
+                prev_percent = player_stats["_prev_percent"]
+                current_percent = snapshot["percent"]
+                damage_taken = 0.0
+                if prev_percent is not None and current_percent is not None:
+                    damage_taken = max(0.0, current_percent - prev_percent)
+
+                prev_stocks = player_stats["_prev_stocks"]
+                current_stocks = snapshot["stocks"]
+                lost_stock = False
+                if prev_stocks is not None and current_stocks is not None:
+                    lost_stock = current_stocks < prev_stocks
+
+                position_now = snapshot.get("position")
+                if damage_taken > 0 and position_now is not None:
+                    stats["hit_locations"].append(
+                        {
+                            "frame_index": frame_index,
+                            "player_index": player_idx,
+                            "player_name": player_stats["player_name"],
+                            "character": player_stats["character"],
+                            "x": round(position_now[0], 2),
+                            "y": round(position_now[1], 2),
+                            "damage_taken": round(damage_taken, 1),
+                            "percent_after_hit": round(current_percent, 1),
+                            "is_stock_loss": lost_stock,
+                        }
+                    )
 
             # Approximate neutral wins and punish sequences for standard 1v1 replays.
             active_player_ids = sorted(frame_snapshots.keys())

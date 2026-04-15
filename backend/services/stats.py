@@ -8,6 +8,9 @@ from slippi.event import LCancel
 from slippi import id as sid
 from typing import Dict, Any, List
 
+HIT_DIRECTION_LOOKAHEAD_FRAMES = 6
+HIT_DIRECTION_MIN_DISTANCE = 1.25
+
 
 AERIAL_KEYWORDS = ("AERIAL", "NAIR", "FAIR", "BAIR", "UAIR", "DAIR")
 LANDING_KEYWORDS = ("LAND", "LANDING")
@@ -375,6 +378,10 @@ def _get_position(post_state: Any) -> tuple[float, float] | None:
         return None
 
 
+def _vector_magnitude(dx: float, dy: float) -> float:
+    return ((dx * dx) + (dy * dy)) ** 0.5
+
+
 def _tech_direction_bucket(state_name: str, facing_direction: float | None) -> str | None:
     if not _is_tech_success_state(state_name):
         return None
@@ -496,6 +503,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "_tech_event_active": False,
                 "_tech_event_resolved": False,
                 "_tech_event_frames": 0,
+                "_pending_hit_indices": [],
             }
         
         for frame_index, frame in frame_items:
@@ -553,6 +561,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                                 "_tech_event_active": False,
                                 "_tech_event_resolved": False,
                                 "_tech_event_frames": 0,
+                                "_pending_hit_indices": [],
                             }
 
                         player_stats = per_player_work[player_idx]
@@ -740,6 +749,25 @@ def extract_stats(game: Game) -> Dict[str, Any]:
 
             for player_idx, snapshot in frame_snapshots.items():
                 player_stats = per_player_work[player_idx]
+                position_now = snapshot.get("position")
+                pending_hit_indices = player_stats.get("_pending_hit_indices", [])
+                if position_now is not None and pending_hit_indices:
+                    remaining_pending_hit_indices = []
+                    for hit_index in pending_hit_indices:
+                        hit_event = stats["hit_locations"][hit_index]
+                        frames_since_hit = frame_index - hit_event["frame_index"]
+                        dx = position_now[0] - hit_event["x"]
+                        dy = position_now[1] - hit_event["y"]
+                        distance = _vector_magnitude(dx, dy)
+
+                        if distance >= HIT_DIRECTION_MIN_DISTANCE:
+                            hit_event["launch_dx"] = round(dx, 2)
+                            hit_event["launch_dy"] = round(dy, 2)
+                        elif frames_since_hit < HIT_DIRECTION_LOOKAHEAD_FRAMES:
+                            remaining_pending_hit_indices.append(hit_index)
+
+                    player_stats["_pending_hit_indices"] = remaining_pending_hit_indices
+
                 prev_percent = player_stats["_prev_percent"]
                 current_percent = snapshot["percent"]
                 damage_taken = 0.0
@@ -752,7 +780,6 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 if prev_stocks is not None and current_stocks is not None:
                     lost_stock = current_stocks < prev_stocks
 
-                position_now = snapshot.get("position")
                 if damage_taken > 0 and position_now is not None:
                     stats["hit_locations"].append(
                         {
@@ -765,7 +792,12 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                             "damage_taken": round(damage_taken, 1),
                             "percent_after_hit": round(current_percent, 1),
                             "is_stock_loss": lost_stock,
+                            "launch_dx": None,
+                            "launch_dy": None,
                         }
+                    )
+                    player_stats["_pending_hit_indices"].append(
+                        len(stats["hit_locations"]) - 1
                     )
 
             # Approximate neutral wins and punish sequences for standard 1v1 replays.

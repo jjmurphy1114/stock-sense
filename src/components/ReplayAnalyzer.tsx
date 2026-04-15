@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 interface AnalysisResponse {
   stats: {
@@ -15,6 +15,8 @@ interface AnalysisResponse {
       damage_taken: number;
       percent_after_hit: number;
       is_stock_loss: boolean;
+      launch_dx: number | null;
+      launch_dy: number | null;
     }>;
     per_player: Array<{
       player_index: number;
@@ -68,6 +70,7 @@ interface AnalysisResponse {
 
 type AnalysisTab = "overview" | "graph";
 type HitMapFilter = "all" | number;
+const HIT_SEQUENCE_INTERVAL_MS = 400;
 
 function StatTile({
   label,
@@ -287,13 +290,58 @@ function getStageLayout(stage?: string): StageLayout {
   );
 }
 
+function normalizeVector(dx: number, dy: number) {
+  const magnitude = Math.hypot(dx, dy);
+  if (magnitude === 0) {
+    return null;
+  }
+
+  return {
+    dx: dx / magnitude,
+    dy: dy / magnitude,
+    magnitude,
+  };
+}
+
 function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
   const stageLayout = getStageLayout(analysis.metadata?.stage);
   const hitLocations = analysis.stats.hit_locations ?? [];
   const [activeFilter, setActiveFilter] = useState<HitMapFilter>("all");
+  const [sequencePlaybackState, setSequencePlaybackState] = useState<
+    "all" | "playing" | "paused"
+  >("all");
+  const [revealedHitCount, setRevealedHitCount] = useState(0);
   const visibleHitLocations = hitLocations.filter((location) =>
     activeFilter === "all" ? true : location.player_index === activeFilter,
   );
+  const displayedHitLocations =
+    sequencePlaybackState === "all"
+      ? visibleHitLocations
+      : visibleHitLocations.slice(0, revealedHitCount);
+
+  useEffect(() => {
+    setSequencePlaybackState("all");
+    setRevealedHitCount(visibleHitLocations.length);
+  }, [analysis, activeFilter, visibleHitLocations.length]);
+
+  useEffect(() => {
+    if (sequencePlaybackState !== "playing") {
+      return;
+    }
+
+    if (revealedHitCount >= visibleHitLocations.length) {
+      setSequencePlaybackState("paused");
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setRevealedHitCount((current) =>
+        Math.min(current + 1, visibleHitLocations.length),
+      );
+    }, HIT_SEQUENCE_INTERVAL_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [sequencePlaybackState, revealedHitCount, visibleHitLocations.length]);
 
   if (hitLocations.length === 0) {
     return (
@@ -332,6 +380,45 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
         </div>
 
         <div className="flex flex-wrap gap-3">
+          <button
+            type="button"
+            onClick={() => {
+              setSequencePlaybackState("playing");
+              setRevealedHitCount(0);
+            }}
+            className="rounded-full border border-purple-400/40 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-100 transition hover:bg-purple-500/20"
+          >
+            Replay hits
+          </button>
+          <button
+            type="button"
+            onClick={() => setSequencePlaybackState("paused")}
+            disabled={sequencePlaybackState !== "playing"}
+            className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/80 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Pause replay
+          </button>
+          <button
+            type="button"
+            onClick={() => setSequencePlaybackState("playing")}
+            disabled={
+              sequencePlaybackState !== "paused" ||
+              revealedHitCount >= visibleHitLocations.length
+            }
+            className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/80 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Resume replay
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setSequencePlaybackState("all");
+              setRevealedHitCount(visibleHitLocations.length);
+            }}
+            className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/80"
+          >
+            Show all
+          </button>
           <button
             type="button"
             onClick={() => setActiveFilter("all")}
@@ -456,7 +543,21 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
             />
           ))}
 
-          {visibleHitLocations.map((location, index) => {
+          <defs>
+            <marker
+              id="hitDirectionArrow"
+              viewBox="0 0 10 10"
+              refX="8"
+              refY="5"
+              markerWidth="5"
+              markerHeight="5"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#f8fafc" />
+            </marker>
+          </defs>
+
+          {displayedHitLocations.map((location, index) => {
             const playerIndex = analysis.stats.per_player.findIndex(
               (player) => player.player_index === location.player_index,
             );
@@ -464,12 +565,35 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
               playerColors[
                 (playerIndex >= 0 ? playerIndex : 0) % playerColors.length
               ];
-            const radius = Math.min(6.5, 3 + location.damage_taken / 4);
+            const radius = Math.min(4.75, 2 + location.damage_taken / 6);
+            const direction =
+              location.launch_dx !== null && location.launch_dy !== null
+                ? normalizeVector(location.launch_dx, location.launch_dy)
+                : null;
+            const arrowLength = radius + 10;
+            const arrowEndX = direction
+              ? location.x + direction.dx * arrowLength
+              : location.x;
+            const arrowEndY = direction
+              ? -(location.y + direction.dy * arrowLength)
+              : -location.y;
 
             return (
               <g
                 key={`${location.player_index}-${location.frame_index}-${index}`}
               >
+                {direction && (
+                  <line
+                    x1={location.x}
+                    y1={-location.y}
+                    x2={arrowEndX}
+                    y2={arrowEndY}
+                    stroke="#f8fafc"
+                    strokeOpacity="0.75"
+                    strokeWidth="1.4"
+                    markerEnd="url(#hitDirectionArrow)"
+                  />
+                )}
                 <circle
                   cx={location.x}
                   cy={-location.y}
@@ -487,7 +611,7 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
                   strokeWidth={location.is_stock_loss ? "1.5" : "0.75"}
                 >
                   <title>
-                    {`${location.player_name} (${location.character}) took ${location.damage_taken}% on frame ${location.frame_index} at (${location.x}, ${location.y})`}
+                    {`${location.player_name} (${location.character}) took ${location.damage_taken}% on frame ${location.frame_index} at (${location.x}, ${location.y})${direction ? ` and was launched toward (${arrowEndX.toFixed(1)}, ${(-arrowEndY).toFixed(1)})` : ""}`}
                   </title>
                 </circle>
               </g>
@@ -497,10 +621,11 @@ function StageHitMap({ analysis }: { analysis: AnalysisResponse }) {
       </div>
 
       <p className="mt-3 text-xs text-slate-400">
-        Showing {visibleHitLocations.length} hit
-        {visibleHitLocations.length === 1 ? "" : "s"}. Larger dots mean more
+        Showing {displayedHitLocations.length} of {visibleHitLocations.length}{" "}
+        hit{visibleHitLocations.length === 1 ? "" : "s"}. Larger dots mean more
         damage from that hit. White-ringed dots mark hits that also coincided
-        with a stock loss.
+        with a stock loss, and arrows estimate the launch direction from the
+        next few frames of movement.
       </p>
     </div>
   );

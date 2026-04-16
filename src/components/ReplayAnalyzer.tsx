@@ -6,6 +6,7 @@ import type {
   AnalysisResponse,
   BatchAnalysisResponse,
 } from "./replayAnalysisTypes";
+import { formatCharacterName } from "./replayAnalysisTypes";
 
 type AnalysisTab = "overview" | "graph";
 
@@ -132,9 +133,8 @@ export default function ReplayAnalyzer() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
-  const [batchAnalysis, setBatchAnalysis] = useState<BatchAnalysisResponse | null>(
-    null,
-  );
+  const [batchAnalysis, setBatchAnalysis] =
+    useState<BatchAnalysisResponse | null>(null);
   const [selectedTag, setSelectedTag] = useState("");
   const [selectionLabel, setSelectionLabel] = useState<string>("");
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
@@ -202,7 +202,9 @@ export default function ReplayAnalyzer() {
     setError(null);
   };
 
-  const normalizeSingleAnalysis = (rawData: AnalysisResponse): AnalysisResponse => {
+  const normalizeSingleAnalysis = (
+    rawData: AnalysisResponse,
+  ): AnalysisResponse => {
     return {
       ...rawData,
       stats: {
@@ -249,7 +251,8 @@ export default function ReplayAnalyzer() {
 
     try {
       const formData = new FormData();
-      const isBatchUpload = uploadSource === "folder" || selectedFiles.length > 1;
+      const isBatchUpload =
+        uploadSource === "folder" || selectedFiles.length > 1;
       if (isBatchUpload) {
         selectedFiles.forEach((file) => {
           formData.append("files", file);
@@ -258,10 +261,13 @@ export default function ReplayAnalyzer() {
         formData.append("file", selectedFiles[0]);
       }
 
-      const response = await fetch(isBatchUpload ? "/api/analyze-batch" : "/api/analyze", {
-        method: "POST",
-        body: formData,
-      });
+      const response = await fetch(
+        isBatchUpload ? "/api/analyze-batch" : "/api/analyze",
+        {
+          method: "POST",
+          body: formData,
+        },
+      );
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -301,7 +307,9 @@ export default function ReplayAnalyzer() {
         {/* Header */}
         <div className="text-center mb-12">
           <h1 className="text-5xl font-bold text-white mb-2">StockSense</h1>
-          <p className="text-purple-200 text-lg">AI-Powered Replay Analysis</p>
+          <p className="text-purple-200 text-lg">
+            A Melee Replay Analyzer and Coach
+          </p>
         </div>
 
         <div className={"grid gap-8 justify-center"}>
@@ -432,10 +440,10 @@ export default function ReplayAnalyzer() {
                         ? "Analyzing folder..."
                         : "Analyzing..."}
                     </span>
+                  ) : uploadSource === "folder" ? (
+                    "Analyze Trends"
                   ) : (
-                    uploadSource === "folder"
-                      ? "Analyze Trends"
-                      : "Analyze Replay"
+                    "Analyze Replay"
                   )}
                 </button>
               </form>
@@ -533,7 +541,7 @@ export default function ReplayAnalyzer() {
                                     className="h-8 w-8"
                                   />
                                   <span className="text-white">
-                                    {player.character}
+                                    {formatCharacterName(player.character)}
                                   </span>
                                   {player.tag && (
                                     <span className="text-gray-400 text-xs">
@@ -607,7 +615,7 @@ export default function ReplayAnalyzer() {
                                   <p className="text-sm font-semibold text-white">
                                     {player.player_name}{" "}
                                     <span className="text-slate-400">
-                                      ({player.character})
+                                      ({formatCharacterName(player.character)})
                                     </span>
                                   </p>
                                 </div>
@@ -675,7 +683,7 @@ export default function ReplayAnalyzer() {
                                     />
                                     <span>{player.player_name} </span>
                                     <span className="text-slate-400">
-                                      ({player.character})
+                                      ({formatCharacterName(player.character)})
                                     </span>
                                   </p>
                                 </div>

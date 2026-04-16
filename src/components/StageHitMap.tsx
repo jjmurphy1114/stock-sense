@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 
-import type { AnalysisResponse } from "./replayAnalysisTypes";
+import {
+  formatCharacterName,
+  type AnalysisResponse,
+} from "./replayAnalysisTypes";
 
 type HitMapFilter = "all" | number;
 
@@ -311,7 +314,8 @@ export default function StageHitMap({
                   }}
                 />
                 <span>
-                  {player.player_name} ({player.character}) • {hitCount} hits
+                  {player.player_name} ({formatCharacterName(player.character)}) •{" "}
+                  {hitCount} hits
                 </span>
               </div>
             );
@@ -459,7 +463,7 @@ export default function StageHitMap({
                   strokeWidth={location.is_stock_loss ? "2.2" : "0.75"}
                 >
                   <title>
-                    {`${location.player_name} (${location.character}) took ${location.damage_taken}% on frame ${location.frame_index} at (${location.x}, ${location.y})${direction ? ` and was launched toward (${arrowEndX.toFixed(1)}, ${(-arrowEndY).toFixed(1)})` : ""}`}
+                    {`${location.player_name} (${formatCharacterName(location.character)}) took ${location.damage_taken}% on frame ${location.frame_index} at (${location.x}, ${location.y})${direction ? ` and was launched toward (${arrowEndX.toFixed(1)}, ${(-arrowEndY).toFixed(1)})` : ""}`}
                   </title>
                 </circle>
               </g>

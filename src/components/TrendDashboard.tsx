@@ -1,53 +1,174 @@
+import { useState } from "react";
+
 import type {
+  AnalysisMetadataPlayer,
   BatchAnalysisResponse,
   PerPlayerStats,
+  ReplayAnalysisWithFile,
 } from "./replayAnalysisTypes";
+import { formatCharacterName } from "./replayAnalysisTypes";
+
+type ReplayOverrideValue = "auto" | `${number}`;
 
 type TrendMatch = {
+  replayId: string;
+  replayIndex: number;
   filename: string;
   character: string;
   stage?: string;
   didWin: boolean;
   stats: PerPlayerStats;
+  trackedPlayer: AnalysisMetadataPlayer;
+  opponentCharacter: string;
+  opponentTag: string;
 };
+
+type TrendMetricKey =
+  | "l_cancel_rate"
+  | "tech_miss_rate"
+  | "neutral_win_rate"
+  | "damage_per_opening"
+  | "actions_per_minute";
+
+const metricConfig: Array<{
+  key: TrendMetricKey;
+  label: string;
+  color: string;
+  suffix?: string;
+}> = [
+  { key: "l_cancel_rate", label: "L-Cancel", color: "#a78bfa", suffix: "%" },
+  { key: "tech_miss_rate", label: "Tech Miss", color: "#f97316", suffix: "%" },
+  {
+    key: "neutral_win_rate",
+    label: "Neutral Win",
+    color: "#34d399",
+    suffix: "%",
+  },
+  {
+    key: "damage_per_opening",
+    label: "Damage/Open",
+    color: "#fbbf24",
+  },
+  {
+    key: "actions_per_minute",
+    label: "APM",
+    color: "#38bdf8",
+  },
+];
 
 function normalizeTag(tag: string) {
   return tag.trim().toLowerCase();
 }
 
+function getReplayId(replay: ReplayAnalysisWithFile, index: number) {
+  return `${index}-${replay.filename}-${replay.stats.total_frames}`;
+}
+
+function getPlayerIdentityLabel(player: AnalysisMetadataPlayer) {
+  const pieces = [
+    player.connect_code,
+    player.netplay_name,
+    player.name_tag,
+  ].filter(Boolean);
+
+  if (pieces.length === 0) {
+    return player.tag || `Player ${player.player_index + 1}`;
+  }
+
+  return pieces.join(" • ");
+}
+
+function getAutoTrackedPlayer(
+  replay: ReplayAnalysisWithFile,
+  selectedTag: string,
+) {
+  const normalizedSelectedTag = normalizeTag(selectedTag);
+  return replay.metadata?.players.find(
+    (entry) => normalizeTag(entry.tag) === normalizedSelectedTag,
+  );
+}
+
+function getResolvedTrackedPlayer(
+  replay: ReplayAnalysisWithFile,
+  selectedTag: string,
+  overrideValue: ReplayOverrideValue | undefined,
+) {
+  if (overrideValue && overrideValue !== "auto") {
+    const overrideIndex = Number(overrideValue);
+    return replay.metadata?.players.find(
+      (player) => player.player_index === overrideIndex,
+    );
+  }
+
+  return getAutoTrackedPlayer(replay, selectedTag);
+}
+
 function getTrendMatches(
   batchAnalysis: BatchAnalysisResponse,
   selectedTag: string,
-): TrendMatch[] {
-  const normalizedSelectedTag = normalizeTag(selectedTag);
+  replayOverrides: Record<string, ReplayOverrideValue>,
+  myCharacterFilter: string,
+  opponentCharacterFilter: string,
+) {
+  const matches: TrendMatch[] = [];
 
-  return batchAnalysis.replays.flatMap((replay) => {
-    const player = replay.metadata?.players.find(
-      (entry) => normalizeTag(entry.tag) === normalizedSelectedTag,
+  batchAnalysis.replays.forEach((replay, replayIndex) => {
+    const replayId = getReplayId(replay, replayIndex);
+    const trackedPlayer = getResolvedTrackedPlayer(
+      replay,
+      selectedTag,
+      replayOverrides[replayId],
     );
 
-    if (!player) {
-      return [];
+    if (!trackedPlayer) {
+      return;
     }
 
     const stats = replay.stats.per_player.find(
-      (entry) => entry.player_index === player.player_index,
+      (entry) => entry.player_index === trackedPlayer.player_index,
     );
 
     if (!stats) {
-      return [];
+      return;
     }
 
-    return [
-      {
-        filename: replay.filename,
-        character: player.character,
-        stage: replay.metadata?.stage,
-        didWin: player.did_win,
-        stats,
-      },
-    ];
+    const opponent =
+      replay.metadata?.players.find(
+        (player) =>
+          player.player_index !== trackedPlayer.player_index && !player.is_cpu,
+      ) ??
+      replay.metadata?.players.find(
+        (player) => player.player_index !== trackedPlayer.player_index,
+      );
+
+    const match: TrendMatch = {
+      replayId,
+      replayIndex,
+      filename: replay.filename,
+      character: trackedPlayer.character,
+      stage: replay.metadata?.stage,
+      didWin: trackedPlayer.did_win,
+      stats,
+      trackedPlayer,
+      opponentCharacter: opponent?.character ?? "Unknown",
+      opponentTag: opponent?.tag ?? `Player ${trackedPlayer.player_index + 1}`,
+    };
+
+    if (myCharacterFilter !== "all" && match.character !== myCharacterFilter) {
+      return;
+    }
+
+    if (
+      opponentCharacterFilter !== "all" &&
+      match.opponentCharacter !== opponentCharacterFilter
+    ) {
+      return;
+    }
+
+    matches.push(match);
   });
+
+  return matches;
 }
 
 function averageBy<T>(items: T[], selector: (item: T) => number) {
@@ -55,9 +176,9 @@ function averageBy<T>(items: T[], selector: (item: T) => number) {
     return 0;
   }
 
-  return selector === undefined
-    ? 0
-    : items.reduce((total, item) => total + selector(item), 0) / items.length;
+  return (
+    items.reduce((total, item) => total + selector(item), 0) / items.length
+  );
 }
 
 function roundValue(value: number, digits = 1) {
@@ -72,6 +193,13 @@ function getCharacterCounts(matches: TrendMatch[]) {
   });
 
   return Array.from(counts.entries()).sort((left, right) => right[1] - left[1]);
+}
+
+function getUniqueCharacters(
+  matches: TrendMatch[],
+  selector: (match: TrendMatch) => string,
+) {
+  return Array.from(new Set(matches.map(selector))).sort();
 }
 
 function TrendStat({
@@ -96,6 +224,117 @@ function TrendStat({
   );
 }
 
+function TrendLineChart({
+  matches,
+  metricKey,
+  label,
+  color,
+  suffix = "",
+}: {
+  matches: TrendMatch[];
+  metricKey: TrendMetricKey;
+  label: string;
+  color: string;
+  suffix?: string;
+}) {
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const width = 320;
+  const height = 160;
+  const paddingX = 24;
+  const paddingY = 20;
+  const values = matches.map((match) => match.stats[metricKey]);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const valueRange = maxValue - minValue || 1;
+
+  const points = values
+    .map((value, index) => {
+      const x =
+        matches.length === 1
+          ? width / 2
+          : paddingX + (index / (matches.length - 1)) * (width - paddingX * 2);
+      const y =
+        height -
+        paddingY -
+        ((value - minValue) / valueRange) * (height - paddingY * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+
+  return (
+    <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-white">{label}</p>
+          <p className="mt-1 text-xs text-slate-400">
+            Replay order in this filtered batch
+          </p>
+        </div>
+        <div className="text-right text-xs text-slate-400">
+          <p>
+            High {roundValue(maxValue)}
+            {suffix}
+          </p>
+          <p>
+            Low {roundValue(minValue)}
+            {suffix}
+          </p>
+        </div>
+      </div>
+
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
+        <line
+          x1={paddingX}
+          y1={height - paddingY}
+          x2={width - paddingX}
+          y2={height - paddingY}
+          stroke="#475569"
+          strokeWidth="1"
+        />
+        <line
+          x1={paddingX}
+          y1={paddingY}
+          x2={paddingX}
+          y2={height - paddingY}
+          stroke="#475569"
+          strokeWidth="1"
+        />
+        <polyline
+          fill="none"
+          stroke={color}
+          strokeWidth="3"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          points={points}
+        />
+        {values.map((value, index) => {
+          const x =
+            matches.length === 1
+              ? width / 2
+              : paddingX +
+                (index / (matches.length - 1)) * (width - paddingX * 2);
+          const y =
+            height -
+            paddingY -
+            ((value - minValue) / valueRange) * (height - paddingY * 2);
+
+          return (
+            <g key={`${label}-${matches[index].replayId}`}>
+              <circle cx={x} cy={y} r="4" fill={color} />
+              <title>
+                {`${matches[index].filename}: ${roundValue(value)}${suffix}`}
+              </title>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
 export default function TrendDashboard({
   batchAnalysis,
   selectedTag,
@@ -105,8 +344,39 @@ export default function TrendDashboard({
   selectedTag: string;
   onSelectTag: (tag: string) => void;
 }) {
-  const matches = getTrendMatches(batchAnalysis, selectedTag);
+  const [replayOverrides, setReplayOverrides] = useState<
+    Record<string, ReplayOverrideValue>
+  >({});
+  const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
+  const [myCharacterFilter, setMyCharacterFilter] = useState("all");
+  const [opponentCharacterFilter, setOpponentCharacterFilter] = useState("all");
+
+  const allResolvedMatches = getTrendMatches(
+    batchAnalysis,
+    selectedTag,
+    replayOverrides,
+    "all",
+    "all",
+  );
+  const matches = getTrendMatches(
+    batchAnalysis,
+    selectedTag,
+    replayOverrides,
+    myCharacterFilter,
+    opponentCharacterFilter,
+  );
   const characterCounts = getCharacterCounts(matches);
+  const availableMyCharacters = getUniqueCharacters(
+    allResolvedMatches,
+    (match) => match.character,
+  );
+  const availableOpponentCharacters = getUniqueCharacters(
+    allResolvedMatches,
+    (match) => match.opponentCharacter,
+  );
+  const overrideCount = Object.values(replayOverrides).filter(
+    (value) => value !== "auto",
+  ).length;
   const winCount = matches.filter((match) => match.didWin).length;
   const lossCount = matches.length - winCount;
   const avgLCancel = roundValue(
@@ -124,17 +394,21 @@ export default function TrendDashboard({
   const avgApm = roundValue(
     averageBy(matches, (match) => match.stats.actions_per_minute),
   );
-  const avgOpeningsPerKill = roundValue(
-    averageBy(
-      matches.filter((match) => match.stats.openings_per_kill !== null),
-      (match) => match.stats.openings_per_kill ?? 0,
-    ),
-  );
+  const avgOpeningsPerKill = matches.some(
+    (match) => match.stats.openings_per_kill !== null,
+  )
+    ? roundValue(
+        averageBy(
+          matches.filter((match) => match.stats.openings_per_kill !== null),
+          (match) => match.stats.openings_per_kill ?? 0,
+        ),
+      )
+    : null;
 
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               Trend Tracking
@@ -150,26 +424,165 @@ export default function TrendDashboard({
             </p>
           </div>
 
-          <label className="flex flex-col gap-2 text-sm text-slate-300">
-            Player tag
-            <select
-              value={selectedTag}
-              onChange={(event) => onSelectTag(event.target.value)}
-              className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
-            >
-              {batchAnalysis.available_tags.map((tag) => (
-                <option key={tag} value={tag}>
-                  {tag}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              Player tag
+              <select
+                value={selectedTag}
+                onChange={(event) => onSelectTag(event.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+              >
+                {batchAnalysis.available_tags.map((tag) => (
+                  <option key={tag} value={tag}>
+                    {tag}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              My character
+              <select
+                value={myCharacterFilter}
+                onChange={(event) => setMyCharacterFilter(event.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+              >
+                <option value="all">All characters</option>
+                {availableMyCharacters.map((character) => (
+                  <option key={character} value={character}>
+                    {formatCharacterName(character)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              Opponent
+              <select
+                value={opponentCharacterFilter}
+                onChange={(event) =>
+                  setOpponentCharacterFilter(event.target.value)
+                }
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+              >
+                <option value="all">All opponents</option>
+                {availableOpponentCharacters.map((character) => (
+                  <option key={character} value={character}>
+                    {formatCharacterName(character)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
+              Player Assignment
+            </p>
+            <p className="mt-1 text-sm text-slate-400">
+              Override any replay where the selected tag did not identify the
+              right port.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              {overrideCount} manual override
+              {overrideCount === 1 ? "" : "s"} active
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setReplayOverrides({})}
+              className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/80"
+            >
+              Reset overrides
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsAssignmentOpen((current) => !current)}
+              className="rounded-full border border-purple-400/40 bg-purple-500/10 px-3 py-1.5 text-xs font-medium text-purple-100 transition hover:bg-purple-500/20"
+            >
+              {isAssignmentOpen ? "Hide assignment" : "Show assignment"}
+            </button>
+          </div>
+        </div>
+
+        {isAssignmentOpen && (
+          <div className="space-y-3">
+            {batchAnalysis.replays.map((replay, replayIndex) => {
+              const replayId = getReplayId(replay, replayIndex);
+              const autoTrackedPlayer = getAutoTrackedPlayer(replay, selectedTag);
+              const resolvedPlayer = getResolvedTrackedPlayer(
+                replay,
+                selectedTag,
+                replayOverrides[replayId],
+              );
+
+              return (
+                <div
+                  key={replayId}
+                  className="rounded-xl border border-slate-700 bg-slate-950/40 p-4"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        {replay.filename}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                      Auto-detected:{" "}
+                      {autoTrackedPlayer
+                        ? `${formatCharacterName(autoTrackedPlayer.character)} • ${getPlayerIdentityLabel(autoTrackedPlayer)}`
+                        : "No tag match"}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Using:{" "}
+                      {resolvedPlayer
+                        ? `${formatCharacterName(resolvedPlayer.character)} • ${getPlayerIdentityLabel(resolvedPlayer)}`
+                        : "Unassigned"}
+                    </p>
+                    </div>
+
+                    <label className="flex min-w-[15rem] flex-col gap-2 text-sm text-slate-300">
+                      Track this player
+                      <select
+                        value={replayOverrides[replayId] ?? "auto"}
+                        onChange={(event) =>
+                          setReplayOverrides((current) => ({
+                            ...current,
+                            [replayId]:
+                              event.target.value as ReplayOverrideValue,
+                          }))
+                        }
+                        className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+                      >
+                        <option value="auto">Auto</option>
+                        {(replay.metadata?.players ?? []).map((player) => (
+                          <option
+                          key={`${replayId}-${player.player_index}`}
+                          value={`${player.player_index}`}
+                        >
+                          P{player.player_index + 1}:{" "}
+                          {formatCharacterName(player.character)} •{" "}
+                          {getPlayerIdentityLabel(player)}
+                        </option>
+                      ))}
+                      </select>
+                    </label>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {matches.length === 0 ? (
         <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
-          No replays in this batch matched the selected tag.
+          No replays matched the current tag and filters. Try a manual override,
+          or widen the character and matchup filters.
         </div>
       ) : (
         <>
@@ -182,7 +595,7 @@ export default function TrendDashboard({
             <TrendStat
               label="Avg L-Cancel"
               value={`${avgLCancel}%`}
-              detail="Average success rate across matched games"
+              detail="Average success rate across filtered games"
             />
             <TrendStat
               label="Avg Tech Miss"
@@ -202,7 +615,7 @@ export default function TrendDashboard({
             <TrendStat
               label="Avg APM"
               value={`${avgApm}`}
-              detail={`Openings/Kill ${avgOpeningsPerKill || "N/A"}`}
+              detail={`Openings/Kill ${avgOpeningsPerKill ?? "N/A"}`}
             />
           </div>
 
@@ -216,8 +629,27 @@ export default function TrendDashboard({
                   key={character}
                   className="rounded-full border border-slate-600 bg-slate-800/80 px-4 py-2 text-sm text-slate-200"
                 >
-                  {character} • {count} replay{count === 1 ? "" : "s"}
+                  {formatCharacterName(character)} • {count} replay
+                  {count === 1 ? "" : "s"}
                 </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
+              Trend Charts
+            </p>
+            <div className="grid gap-4 lg:grid-cols-2">
+              {metricConfig.map((metric) => (
+                <TrendLineChart
+                  key={metric.key}
+                  matches={matches}
+                  metricKey={metric.key}
+                  label={metric.label}
+                  color={metric.color}
+                  suffix={metric.suffix}
+                />
               ))}
             </div>
           </div>
@@ -229,7 +661,7 @@ export default function TrendDashboard({
             <div className="space-y-3">
               {matches.map((match) => (
                 <div
-                  key={`${match.filename}-${match.character}-${match.stage ?? "unknown"}`}
+                  key={match.replayId}
                   className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4"
                 >
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -238,8 +670,15 @@ export default function TrendDashboard({
                         {match.filename}
                       </p>
                       <p className="mt-1 text-xs text-slate-400">
-                        {match.character}
+                        {formatCharacterName(match.character)} vs{" "}
+                        {formatCharacterName(match.opponentCharacter)}
                         {match.stage ? ` • ${match.stage}` : ""}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        Tracking {getPlayerIdentityLabel(match.trackedPlayer)}
+                        {match.opponentTag
+                          ? ` • Opponent ${match.opponentTag}`
+                          : ""}
                       </p>
                     </div>
                     <span

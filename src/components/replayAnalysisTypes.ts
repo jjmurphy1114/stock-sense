@@ -48,6 +48,9 @@ export interface AnalysisMetadataPlayer {
   player_index: number;
   character: string;
   tag: string;
+  connect_code?: string | null;
+  netplay_name?: string | null;
+  name_tag?: string | null;
   is_cpu: boolean;
   stocks_left: number | null;
   did_win: boolean;
@@ -85,4 +88,51 @@ export interface BatchAnalysisResponse {
   replays: ReplayAnalysisWithFile[];
   available_tags: string[];
   failed_files: BatchFailure[];
+}
+
+const characterDisplayNames: Record<string, string> = {
+  BOWSER: "Bowser",
+  CAPTAIN_FALCON: "Captain Falcon",
+  DONKEY_KONG: "Donkey Kong",
+  DR_MARIO: "Dr. Mario",
+  FALCO: "Falco",
+  FOX: "Fox",
+  GAME_AND_WATCH: "Mr. Game & Watch",
+  GANONDORF: "Ganondorf",
+  ICE_CLIMBERS: "Ice Climbers",
+  JIGGLYPUFF: "Jigglypuff",
+  KIRBY: "Kirby",
+  LINK: "Link",
+  LUIGI: "Luigi",
+  MARIO: "Mario",
+  MARTH: "Marth",
+  MEWTWO: "Mewtwo",
+  NANA: "Nana",
+  NESS: "Ness",
+  PEACH: "Peach",
+  PICHU: "Pichu",
+  PIKACHU: "Pikachu",
+  POPO: "Popo",
+  ROY: "Roy",
+  SAMUS: "Samus",
+  SHEIK: "Sheik",
+  YLINK: "Young Link",
+  YOSHI: "Yoshi",
+  YOUNG_LINK: "Young Link",
+  ZELDA: "Zelda",
+};
+
+export function formatCharacterName(character: string): string {
+  if (!character) {
+    return "Unknown";
+  }
+
+  return (
+    characterDisplayNames[character] ??
+    character
+      .toLowerCase()
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ")
+  );
 }

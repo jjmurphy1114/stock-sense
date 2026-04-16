@@ -3,11 +3,13 @@
   "experimentalServices": {
     "web": {
       "entrypoint": ".",
-      "routePrefix": "/"
+      "routePrefix": "/",
+      "framework": "vite"
     },
     "api": {
       "entrypoint": "api/index.py",
-      "routePrefix": "/api"
+      "routePrefix": "/api",
+      "framework": "fastapi"
     }
   }
 }

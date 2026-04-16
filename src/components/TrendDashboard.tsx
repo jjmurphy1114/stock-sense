@@ -545,7 +545,7 @@ export default function TrendDashboard({
                     </p>
                     </div>
 
-                    <label className="flex min-w-[15rem] flex-col gap-2 text-sm text-slate-300">
+                    <label className="flex w-full flex-col gap-2 text-sm text-slate-300 lg:w-80">
                       Track this player
                       <select
                         value={replayOverrides[replayId] ?? "auto"}
@@ -556,7 +556,7 @@ export default function TrendDashboard({
                               event.target.value as ReplayOverrideValue,
                           }))
                         }
-                        className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+                        className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
                       >
                         <option value="auto">Auto</option>
                         {(replay.metadata?.players ?? []).map((player) => (

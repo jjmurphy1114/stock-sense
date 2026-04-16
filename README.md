@@ -133,6 +133,39 @@ npm run lint
 npm run preview
 ```
 
+## Deployment
+
+This project is set up for:
+
+- frontend on Vercel
+- backend on Railway
+
+### Frontend on Vercel
+
+Deploy the repository root as a Vite project.
+
+Set this environment variable in Vercel:
+
+```bash
+VITE_API_BASE_URL=https://your-railway-backend.up.railway.app
+```
+
+When this variable is set, the frontend sends replay uploads directly to the
+Railway backend. In local development, if the variable is not set, the app
+falls back to the local Vite proxy at `/api`.
+
+### Backend on Railway
+
+Deploy the `backend/` directory as a Python service.
+
+Recommended settings:
+
+```text
+Root Directory: backend
+Install Command: pip install -r requirements.txt
+Start Command: uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
 ## Backend API
 
 The main endpoint is:

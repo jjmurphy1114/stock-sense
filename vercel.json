@@ -1,15 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "experimentalServices": {
-    "web": {
-      "entrypoint": ".",
-      "routePrefix": "/",
-      "framework": "vite"
-    },
-    "api": {
-      "entrypoint": "api/index.py",
-      "routePrefix": "/api",
-      "framework": "fastapi"
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
     }
-  }
+  ]
 }

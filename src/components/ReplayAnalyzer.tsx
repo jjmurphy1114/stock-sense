@@ -10,6 +10,11 @@ import { formatCharacterName } from "./replayAnalysisTypes";
 
 type AnalysisTab = "overview" | "graph";
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(
+  /\/$/,
+  "",
+);
+
 function StatTile({
   label,
   value,
@@ -262,7 +267,7 @@ export default function ReplayAnalyzer() {
       }
 
       const response = await fetch(
-        isBatchUpload ? "/api/analyze-batch" : "/api/analyze",
+        `${API_BASE_URL}${isBatchUpload ? "/analyze-batch" : "/analyze"}`,
         {
           method: "POST",
           body: formData,

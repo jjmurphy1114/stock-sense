@@ -16,6 +16,8 @@ type TrendMatch = {
   filename: string;
   character: string;
   stage?: string;
+  startedAt?: string;
+  startedAtMs: number | null;
   didWin: boolean;
   stats: PerPlayerStats;
   trackedPlayer: AnalysisMetadataPlayer;
@@ -33,25 +35,41 @@ type TrendMetricKey =
 const metricConfig: Array<{
   key: TrendMetricKey;
   label: string;
+  description: string;
   color: string;
   suffix?: string;
 }> = [
-  { key: "l_cancel_rate", label: "L-Cancel", color: "#a78bfa", suffix: "%" },
-  { key: "tech_miss_rate", label: "Tech Miss", color: "#f97316", suffix: "%" },
+  {
+    key: "l_cancel_rate",
+    label: "L-Cancel Success Rate",
+    description: "Successful L-cancels as a share of all L-cancel attempts",
+    color: "#a78bfa",
+    suffix: "%",
+  },
+  {
+    key: "tech_miss_rate",
+    label: "Missed Tech Rate",
+    description: "Missed techs as a share of all tech situations",
+    color: "#f97316",
+    suffix: "%",
+  },
   {
     key: "neutral_win_rate",
-    label: "Neutral Win",
+    label: "Neutral Win Rate",
+    description: "Openings you won out of all neutral openings in the game",
     color: "#34d399",
     suffix: "%",
   },
   {
     key: "damage_per_opening",
-    label: "Damage/Open",
+    label: "Damage Per Opening",
+    description: "Average damage converted each time you won an opening",
     color: "#fbbf24",
   },
   {
     key: "actions_per_minute",
-    label: "APM",
+    label: "Actions Per Minute",
+    description: "Overall action volume normalized by match length",
     color: "#38bdf8",
   },
 ];
@@ -62,6 +80,15 @@ function normalizeTag(tag: string) {
 
 function getReplayId(replay: ReplayAnalysisWithFile, index: number) {
   return `${index}-${replay.filename}-${replay.stats.total_frames}`;
+}
+
+function getReplayTimestamp(startedAt?: string) {
+  if (!startedAt) {
+    return null;
+  }
+
+  const timestamp = Date.parse(startedAt);
+  return Number.isNaN(timestamp) ? null : timestamp;
 }
 
 function getPlayerIdentityLabel(player: AnalysisMetadataPlayer) {
@@ -147,6 +174,8 @@ function getTrendMatches(
       filename: replay.filename,
       character: trackedPlayer.character,
       stage: replay.metadata?.stage,
+      startedAt: replay.metadata?.started_at,
+      startedAtMs: getReplayTimestamp(replay.metadata?.started_at),
       didWin: trackedPlayer.did_win,
       stats,
       trackedPlayer,
@@ -168,7 +197,21 @@ function getTrendMatches(
     matches.push(match);
   });
 
-  return matches;
+  return matches.sort((left, right) => {
+    if (left.startedAtMs !== null && right.startedAtMs !== null) {
+      return left.startedAtMs - right.startedAtMs;
+    }
+
+    if (left.startedAtMs !== null) {
+      return -1;
+    }
+
+    if (right.startedAtMs !== null) {
+      return 1;
+    }
+
+    return left.replayIndex - right.replayIndex;
+  });
 }
 
 function averageBy<T>(items: T[], selector: (item: T) => number) {
@@ -183,6 +226,51 @@ function averageBy<T>(items: T[], selector: (item: T) => number) {
 
 function roundValue(value: number, digits = 1) {
   return Number(value.toFixed(digits));
+}
+
+function formatReplayTime(startedAt?: string) {
+  if (!startedAt) {
+    return null;
+  }
+
+  const date = new Date(startedAt);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function getSessionIndices(matches: TrendMatch[]) {
+  const sessionIndices: number[] = [];
+  let currentSession = 0;
+
+  matches.forEach((match, index) => {
+    if (index === 0) {
+      sessionIndices.push(currentSession);
+      return;
+    }
+
+    const previousMatch = matches[index - 1];
+    const hasTimestamps =
+      previousMatch.startedAtMs !== null && match.startedAtMs !== null;
+    const gapMs = hasTimestamps
+      ? match.startedAtMs! - previousMatch.startedAtMs!
+      : null;
+
+    if (gapMs !== null && gapMs > 15 * 60 * 1000) {
+      currentSession += 1;
+    }
+
+    sessionIndices.push(currentSession);
+  });
+
+  return sessionIndices;
 }
 
 function getCharacterCounts(matches: TrendMatch[]) {
@@ -226,14 +314,18 @@ function TrendStat({
 
 function TrendLineChart({
   matches,
+  sessionIndices,
   metricKey,
   label,
+  description,
   color,
   suffix = "",
 }: {
   matches: TrendMatch[];
+  sessionIndices: number[];
   metricKey: TrendMetricKey;
   label: string;
+  description: string;
   color: string;
   suffix?: string;
 }) {
@@ -249,6 +341,14 @@ function TrendLineChart({
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const valueRange = maxValue - minValue || 1;
+  const dividerXs = sessionIndices
+    .map((_, index) => ({ index }))
+    .filter(({ index }) => index > 0 && sessionIndices[index - 1] !== sessionIndices[index])
+    .map(({ index }) =>
+      matches.length === 1
+        ? width / 2
+        : paddingX + (index / (matches.length - 1)) * (width - paddingX * 2),
+    );
 
   const points = values
     .map((value, index) => {
@@ -270,7 +370,7 @@ function TrendLineChart({
         <div>
           <p className="text-sm font-semibold text-white">{label}</p>
           <p className="mt-1 text-xs text-slate-400">
-            Replay order in this filtered batch
+            {description}
           </p>
         </div>
         <div className="text-right text-xs text-slate-400">
@@ -286,6 +386,19 @@ function TrendLineChart({
       </div>
 
       <svg viewBox={`0 0 ${width} ${height}`} className="h-40 w-full">
+        {dividerXs.map((x, index) => (
+          <line
+            key={`${label}-session-${index}`}
+            x1={x}
+            y1={paddingY}
+            x2={x}
+            y2={height - paddingY}
+            stroke="#64748b"
+            strokeDasharray="4 4"
+            strokeWidth="1"
+            opacity="0.8"
+          />
+        ))}
         <line
           x1={paddingX}
           y1={height - paddingY}
@@ -302,6 +415,25 @@ function TrendLineChart({
           stroke="#475569"
           strokeWidth="1"
         />
+        <text
+          x={width / 2}
+          y={height - 4}
+          fill="#94a3b8"
+          fontSize="10"
+          textAnchor="middle"
+        >
+          Games in chronological order
+        </text>
+        <text
+          x={10}
+          y={height / 2}
+          fill="#94a3b8"
+          fontSize="10"
+          textAnchor="middle"
+          transform={`rotate(-90 10 ${height / 2})`}
+        >
+          {`${label}${suffix ? ` (${suffix})` : ""}`}
+        </text>
         <polyline
           fill="none"
           stroke={color}
@@ -325,12 +457,21 @@ function TrendLineChart({
             <g key={`${label}-${matches[index].replayId}`}>
               <circle cx={x} cy={y} r="4" fill={color} />
               <title>
-                {`${matches[index].filename}: ${roundValue(value)}${suffix}`}
+                {`${matches[index].filename}: ${roundValue(value)}${suffix}${
+                  matches[index].startedAt
+                    ? ` • ${formatReplayTime(matches[index].startedAt)}`
+                    : ""
+                }`}
               </title>
             </g>
           );
         })}
       </svg>
+
+      <p className="mt-3 text-xs text-slate-500">
+        Dashed dividers mark breaks of more than 15 minutes between consecutive
+        games.
+      </p>
     </div>
   );
 }
@@ -366,6 +507,12 @@ export default function TrendDashboard({
     opponentCharacterFilter,
   );
   const characterCounts = getCharacterCounts(matches);
+  const sessionIndices = getSessionIndices(matches);
+  const sessionCount =
+    sessionIndices.length > 0 ? sessionIndices[sessionIndices.length - 1] + 1 : 0;
+  const sessionByReplayId = new Map(
+    matches.map((match, index) => [match.replayId, sessionIndices[index] ?? 0]),
+  );
   const availableMyCharacters = getUniqueCharacters(
     allResolvedMatches,
     (match) => match.character,
@@ -590,7 +737,7 @@ export default function TrendDashboard({
             <TrendStat
               label="Replays matched"
               value={`${matches.length}`}
-              detail={`${winCount} wins • ${lossCount} losses`}
+              detail={`${winCount} wins • ${lossCount} losses • ${sessionCount} sessions`}
             />
             <TrendStat
               label="Avg L-Cancel"
@@ -645,8 +792,10 @@ export default function TrendDashboard({
                 <TrendLineChart
                   key={metric.key}
                   matches={matches}
+                  sessionIndices={sessionIndices}
                   metricKey={metric.key}
                   label={metric.label}
+                  description={metric.description}
                   color={metric.color}
                   suffix={metric.suffix}
                 />
@@ -675,9 +824,13 @@ export default function TrendDashboard({
                         {match.stage ? ` • ${match.stage}` : ""}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
+                        {`Session ${(sessionByReplayId.get(match.replayId) ?? 0) + 1} • `}
                         Tracking {getPlayerIdentityLabel(match.trackedPlayer)}
                         {match.opponentTag
                           ? ` • Opponent ${match.opponentTag}`
+                          : ""}
+                        {formatReplayTime(match.startedAt)
+                          ? ` • ${formatReplayTime(match.startedAt)}`
                           : ""}
                       </p>
                     </div>

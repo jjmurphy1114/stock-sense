@@ -70,6 +70,9 @@ export interface AnalysisResponse {
     players: AnalysisMetadataPlayer[];
     num_players: number;
     stage?: string;
+    started_at?: string;
+    end_method?: string;
+    lras_initiator?: number | null;
     winner_player_index?: number | null;
     winner_name?: string | null;
   };

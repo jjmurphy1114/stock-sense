@@ -79,6 +79,20 @@ def extract_metadata(game: Game) -> Dict[str, Any]:
         if start and hasattr(start, 'stage'):
             metadata["stage"] = start.stage.name if hasattr(start.stage, 'name') else str(start.stage)
 
+        game_metadata = getattr(game, "metadata", None)
+        game_date = getattr(game_metadata, "date", None)
+        if game_date is not None and hasattr(game_date, "isoformat"):
+            metadata["started_at"] = game_date.isoformat()
+
+        end = getattr(game, "end", None)
+        end_method = getattr(getattr(end, "method", None), "name", None)
+        if end_method:
+            metadata["end_method"] = end_method
+
+        lras_initiator = getattr(end, "lras_initiator", None)
+        if lras_initiator is not None:
+            metadata["lras_initiator"] = lras_initiator
+
         final_standings = _extract_final_standings(game)
         if final_standings:
             winner_idx = final_standings.get("winner_player_index")
@@ -213,6 +227,18 @@ def _extract_final_standings(game: Game) -> Dict[str, Any]:
         stocks_by_player.keys(),
         key=lambda idx: (-stocks_by_player[idx], percents_by_player.get(idx, 9999.0), idx),
     )
+
+    end = getattr(game, "end", None)
+    lras_initiator = getattr(end, "lras_initiator", None)
+    if lras_initiator is not None:
+        remaining_players = [
+            idx for idx in sorted_players if idx != lras_initiator
+        ]
+        if len(remaining_players) == 1:
+            winner_idx = remaining_players[0]
+        elif remaining_players:
+            winner_idx = remaining_players[0]
+
     if sorted_players:
         top_idx = sorted_players[0]
         tied_top = [
@@ -220,7 +246,7 @@ def _extract_final_standings(game: Game) -> Dict[str, Any]:
             if stocks_by_player[idx] == stocks_by_player[top_idx]
             and percents_by_player.get(idx, 9999.0) == percents_by_player.get(top_idx, 9999.0)
         ]
-        if len(tied_top) == 1:
+        if winner_idx is None and len(tied_top) == 1:
             winner_idx = top_idx
 
     start = getattr(game, "start", None)

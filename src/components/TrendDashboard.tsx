@@ -48,8 +48,8 @@ const metricConfig: Array<{
   },
   {
     key: "tech_miss_rate",
-    label: "Missed Tech Rate",
-    description: "Missed techs as a share of all tech situations",
+    label: "Successful Tech Rate",
+    description: "Successful techs as a share of all tech situations",
     color: "#f97316",
     suffix: "%",
   },
@@ -228,6 +228,15 @@ function roundValue(value: number, digits = 1) {
   return Number(value.toFixed(digits));
 }
 
+function getTechSuccessRate(techAttempts: number, missedTechs: number) {
+  if (!techAttempts) {
+    return 0;
+  }
+
+  const successfulTechs = Math.max(0, techAttempts - missedTechs);
+  return roundValue((successfulTechs / techAttempts) * 100);
+}
+
 function formatReplayTime(startedAt?: string) {
   if (!startedAt) {
     return null;
@@ -337,7 +346,11 @@ function TrendLineChart({
   const height = 160;
   const paddingX = 24;
   const paddingY = 20;
-  const values = matches.map((match) => match.stats[metricKey]);
+  const values = matches.map((match) =>
+    metricKey === "tech_miss_rate"
+      ? getTechSuccessRate(match.stats.tech_attempts, match.stats.missed_techs)
+      : match.stats[metricKey],
+  );
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const valueRange = maxValue - minValue || 1;
@@ -468,11 +481,6 @@ function TrendLineChart({
           );
         })}
       </svg>
-
-      <p className="mt-3 text-xs text-slate-500">
-        Dashed dividers mark breaks of more than 15 minutes between consecutive
-        games.
-      </p>
     </div>
   );
 }
@@ -532,8 +540,10 @@ export default function TrendDashboard({
   const avgLCancel = roundValue(
     averageBy(matches, (match) => match.stats.l_cancel_rate),
   );
-  const avgTechMiss = roundValue(
-    averageBy(matches, (match) => match.stats.tech_miss_rate),
+  const avgTechSuccess = roundValue(
+    averageBy(matches, (match) =>
+      getTechSuccessRate(match.stats.tech_attempts, match.stats.missed_techs),
+    ),
   );
   const avgNeutralWin = roundValue(
     averageBy(matches, (match) => match.stats.neutral_win_rate),
@@ -751,9 +761,9 @@ export default function TrendDashboard({
               detail="Average success rate across filtered games"
             />
             <TrendStat
-              label="Avg Tech Miss"
-              value={`${avgTechMiss}%`}
-              detail="Lower is better"
+              label="Avg Successful Tech"
+              value={`${avgTechSuccess}%`}
+              detail="Higher is better"
             />
             <TrendStat
               label="Avg Neutral Win"
@@ -793,6 +803,12 @@ export default function TrendDashboard({
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               Trend Charts
             </p>
+            <div className="my-4">
+              <p className="text-xs text-slate-400">
+                Dashed dividers mark breaks of more than 15 minutes between
+                consecutive games.
+              </p>
+            </div>
             <div className="grid gap-4 lg:grid-cols-2">
               {metricConfig.map((metric) => (
                 <TrendLineChart
@@ -861,9 +877,13 @@ export default function TrendDashboard({
                       </p>
                     </div>
                     <div className="rounded-lg bg-slate-800/70 p-3">
-                      <p className="text-slate-400">Tech Miss</p>
+                      <p className="text-slate-400">Successful Tech</p>
                       <p className="mt-1 font-semibold text-white">
-                        {match.stats.tech_miss_rate}%
+                        {getTechSuccessRate(
+                          match.stats.tech_attempts,
+                          match.stats.missed_techs,
+                        )}
+                        %
                       </p>
                     </div>
                     <div className="rounded-lg bg-slate-800/70 p-3">

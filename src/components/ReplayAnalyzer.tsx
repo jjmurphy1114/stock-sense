@@ -15,6 +15,15 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(
   "",
 );
 
+function getTechSuccessRate(techAttempts: number, missedTechs: number): number {
+  if (!techAttempts) {
+    return 0;
+  }
+
+  const successfulTechs = Math.max(0, techAttempts - missedTechs);
+  return Number(((successfulTechs / techAttempts) * 100).toFixed(1));
+}
+
 function StatTile({
   label,
   value,
@@ -708,9 +717,9 @@ export default function ReplayAnalyzer() {
                                   detail={`${player.l_cancel_successes}/${player.l_cancel_attempts} successes`}
                                 />
                                 <StatTile
-                                  label="Tech Miss Rate"
-                                  value={`${player.tech_miss_rate}%`}
-                                  detail={`${player.missed_techs}/${player.tech_attempts} missed`}
+                                  label="Successful Tech Rate"
+                                  value={`${getTechSuccessRate(player.tech_attempts, player.missed_techs)}%`}
+                                  detail={`${Math.max(0, player.tech_attempts - player.missed_techs)}/${player.tech_attempts} successful`}
                                 />
                                 <StatTile
                                   label="Tech Direction"

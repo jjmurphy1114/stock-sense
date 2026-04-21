@@ -15,6 +15,97 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(
   "",
 );
 
+type UploadResponse = {
+  ok: boolean;
+  status: number;
+  data: unknown;
+};
+
+type AnalysisJobStartResponse = {
+  job_id: string;
+};
+
+type AnalysisJobResponse = {
+  status: "queued" | "processing" | "completed" | "failed";
+  phase: string;
+  progress: number;
+  result: unknown;
+  error: string | null;
+};
+
+function postFormDataWithProgress(
+  url: string,
+  formData: FormData,
+  onProgress: (percent: number) => void,
+): Promise<UploadResponse> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", url);
+
+    xhr.upload.onprogress = (event) => {
+      if (!event.lengthComputable) {
+        return;
+      }
+
+      const percent = Math.min(
+        100,
+        Math.round((event.loaded / event.total) * 100),
+      );
+      onProgress(percent);
+    };
+
+    xhr.onerror = () => {
+      reject(new Error("Network error while uploading replay"));
+    };
+
+    xhr.onload = () => {
+      const responseText = xhr.responseText ?? "";
+      let data: unknown = null;
+
+      if (responseText) {
+        try {
+          data = JSON.parse(responseText);
+        } catch {
+          data = null;
+        }
+      }
+
+      resolve({
+        ok: xhr.status >= 200 && xhr.status < 300,
+        status: xhr.status,
+        data,
+      });
+    };
+
+    xhr.send(formData);
+  });
+}
+
+async function waitForAnalysisJob(
+  jobId: string,
+  onProgress: (percent: number) => void,
+): Promise<unknown> {
+  while (true) {
+    const response = await fetch(`${API_BASE_URL}/analysis-jobs/${jobId}`);
+    if (!response.ok) {
+      throw new Error("Failed to fetch analysis progress");
+    }
+
+    const payload = (await response.json()) as AnalysisJobResponse;
+    onProgress(Math.max(0, Math.min(100, payload.progress ?? 0)));
+
+    if (payload.status === "completed") {
+      return payload.result;
+    }
+
+    if (payload.status === "failed") {
+      throw new Error(payload.error || "Analysis failed");
+    }
+
+    await new Promise((resolve) => globalThis.setTimeout(resolve, 500));
+  }
+}
+
 function getTechSuccessRate(techAttempts: number, missedTechs: number): number {
   if (!techAttempts) {
     return 0;
@@ -145,6 +236,8 @@ export default function ReplayAnalyzer() {
     null,
   );
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [analysisProgress, setAnalysisProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
   const [batchAnalysis, setBatchAnalysis] =
@@ -259,6 +352,8 @@ export default function ReplayAnalyzer() {
     }
 
     setLoading(true);
+    setUploadProgress(0);
+    setAnalysisProgress(null);
     setError(null);
     setAnalysis(null);
     setBatchAnalysis(null);
@@ -275,16 +370,16 @@ export default function ReplayAnalyzer() {
         formData.append("file", selectedFiles[0]);
       }
 
-      const response = await fetch(
-        `${API_BASE_URL}${isBatchUpload ? "/analyze-batch" : "/analyze"}`,
-        {
-          method: "POST",
-          body: formData,
-        },
+      const response = await postFormDataWithProgress(
+        `${API_BASE_URL}${isBatchUpload ? "/analyze-batch-start" : "/analyze-start"}`,
+        formData,
+        setUploadProgress,
       );
 
       if (!response.ok) {
-        const errorData = await response.json();
+        const errorData = (response.data ?? {}) as {
+          detail?: { message?: string } | string;
+        };
         const detail =
           typeof errorData.detail === "string"
             ? errorData.detail
@@ -292,13 +387,25 @@ export default function ReplayAnalyzer() {
         throw new Error(detail);
       }
 
+      setUploadProgress(100);
+      setAnalysisProgress(0);
+      const startData = response.data as AnalysisJobStartResponse;
+      if (!startData?.job_id) {
+        throw new Error("Missing analysis job id from server");
+      }
+
+      const result = await waitForAnalysisJob(
+        startData.job_id,
+        setAnalysisProgress,
+      );
+
       if (isBatchUpload) {
-        const rawData: BatchAnalysisResponse = await response.json();
+        const rawData = result as BatchAnalysisResponse;
         const data = normalizeBatchResponse(rawData);
         setBatchAnalysis(data);
         setSelectedTag(data.available_tags[0] ?? "");
       } else {
-        const rawData: AnalysisResponse = await response.json();
+        const rawData = result as AnalysisResponse;
         const data = normalizeSingleAnalysis(rawData);
         setAnalysis(data);
         setActiveTab("overview");
@@ -311,6 +418,8 @@ export default function ReplayAnalyzer() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
+      setUploadProgress(null);
+      setAnalysisProgress(null);
       setLoading(false);
     }
   };
@@ -439,6 +548,44 @@ export default function ReplayAnalyzer() {
                 {error && (
                   <div className="bg-red-900/30 border border-red-600/50 rounded-lg p-4">
                     <p className="text-red-200 text-sm">⚠️ {error}</p>
+                  </div>
+                )}
+
+                {loading && uploadProgress !== null && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>
+                        {uploadProgress < 100
+                          ? "Uploading replay(s)..."
+                          : "Upload complete."}
+                      </span>
+                      <span>{uploadProgress}%</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-700">
+                      <div
+                        className="h-full rounded-full bg-linear-to-r from-purple-500 to-pink-500 transition-[width] duration-200"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {loading && analysisProgress !== null && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>
+                        {analysisProgress < 100
+                          ? "Analyzing replay(s)..."
+                          : "Analysis complete."}
+                      </span>
+                      <span>{analysisProgress}%</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-700">
+                      <div
+                        className="h-full rounded-full bg-linear-to-r from-cyan-400 to-emerald-400 transition-[width] duration-200"
+                        style={{ width: `${analysisProgress}%` }}
+                      />
+                    </div>
                   </div>
                 )}
 

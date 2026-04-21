@@ -228,6 +228,45 @@ function getPlayerFeedbackGroups(analysis: AnalysisResponse) {
   });
 }
 
+function getDefaultBatchTag(data: BatchAnalysisResponse): string {
+  const replayCounts = new Map<string, number>();
+
+  data.replays.forEach((replay) => {
+    const uniqueReplayTags = new Set<string>();
+
+    (replay.metadata?.players ?? []).forEach((player) => {
+      const rawTag = (player.tag ?? "").trim();
+      if (!rawTag || player.is_cpu) {
+        return;
+      }
+
+      uniqueReplayTags.add(rawTag);
+    });
+
+    uniqueReplayTags.forEach((tag) => {
+      replayCounts.set(tag, (replayCounts.get(tag) ?? 0) + 1);
+    });
+  });
+
+  if (replayCounts.size === 0) {
+    return data.available_tags[0] ?? "";
+  }
+
+  const rankedTags = Array.from(replayCounts.entries()).sort(
+    ([leftTag, leftCount], [rightTag, rightCount]) => {
+      if (leftCount !== rightCount) {
+        return rightCount - leftCount;
+      }
+
+      return leftTag.localeCompare(rightTag, undefined, {
+        sensitivity: "base",
+      });
+    },
+  );
+
+  return rankedTags[0]?.[0] ?? data.available_tags[0] ?? "";
+}
+
 export default function ReplayAnalyzer() {
   const singleFileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
@@ -403,7 +442,7 @@ export default function ReplayAnalyzer() {
         const rawData = result as BatchAnalysisResponse;
         const data = normalizeBatchResponse(rawData);
         setBatchAnalysis(data);
-        setSelectedTag(data.available_tags[0] ?? "");
+        setSelectedTag(getDefaultBatchTag(data));
       } else {
         const rawData = result as AnalysisResponse;
         const data = normalizeSingleAnalysis(rawData);

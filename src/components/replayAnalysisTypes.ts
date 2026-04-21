@@ -139,3 +139,15 @@ export function formatCharacterName(character: string): string {
       .join(" ")
   );
 }
+
+export function formatStageName(stage: string): string {
+  if (!stage) {
+    return "Unknown";
+  }
+
+  return stage
+    .toLowerCase()
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}

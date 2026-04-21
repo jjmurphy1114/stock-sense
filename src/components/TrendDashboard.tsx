@@ -6,7 +6,7 @@ import type {
   PerPlayerStats,
   ReplayAnalysisWithFile,
 } from "./replayAnalysisTypes";
-import { formatCharacterName } from "./replayAnalysisTypes";
+import { formatCharacterName, formatStageName } from "./replayAnalysisTypes";
 
 type ReplayOverrideValue = "auto" | `${number}`;
 
@@ -15,7 +15,7 @@ type TrendMatch = {
   replayIndex: number;
   filename: string;
   character: string;
-  stage?: string;
+  stage: string;
   startedAt?: string;
   startedAtMs: number | null;
   didWin: boolean;
@@ -173,7 +173,7 @@ function getTrendMatches(
       replayIndex,
       filename: replay.filename,
       character: trackedPlayer.character,
-      stage: replay.metadata?.stage,
+      stage: replay.metadata?.stage || "Unknown",
       startedAt: replay.metadata?.started_at,
       startedAtMs: getReplayTimestamp(replay.metadata?.started_at),
       didWin: trackedPlayer.did_win,
@@ -343,7 +343,10 @@ function TrendLineChart({
   const valueRange = maxValue - minValue || 1;
   const dividerXs = sessionIndices
     .map((_, index) => ({ index }))
-    .filter(({ index }) => index > 0 && sessionIndices[index - 1] !== sessionIndices[index])
+    .filter(
+      ({ index }) =>
+        index > 0 && sessionIndices[index - 1] !== sessionIndices[index],
+    )
     .map(({ index }) =>
       matches.length === 1
         ? width / 2
@@ -369,9 +372,7 @@ function TrendLineChart({
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-white">{label}</p>
-          <p className="mt-1 text-xs text-slate-400">
-            {description}
-          </p>
+          <p className="mt-1 text-xs text-slate-400">{description}</p>
         </div>
         <div className="text-right text-xs text-slate-400">
           <p>
@@ -509,7 +510,9 @@ export default function TrendDashboard({
   const characterCounts = getCharacterCounts(matches);
   const sessionIndices = getSessionIndices(matches);
   const sessionCount =
-    sessionIndices.length > 0 ? sessionIndices[sessionIndices.length - 1] + 1 : 0;
+    sessionIndices.length > 0
+      ? sessionIndices[sessionIndices.length - 1] + 1
+      : 0;
   const sessionByReplayId = new Map(
     matches.map((match, index) => [match.replayId, sessionIndices[index] ?? 0]),
   );
@@ -661,7 +664,10 @@ export default function TrendDashboard({
           <div className="space-y-3">
             {batchAnalysis.replays.map((replay, replayIndex) => {
               const replayId = getReplayId(replay, replayIndex);
-              const autoTrackedPlayer = getAutoTrackedPlayer(replay, selectedTag);
+              const autoTrackedPlayer = getAutoTrackedPlayer(
+                replay,
+                selectedTag,
+              );
               const resolvedPlayer = getResolvedTrackedPlayer(
                 replay,
                 selectedTag,
@@ -679,17 +685,17 @@ export default function TrendDashboard({
                         {replay.filename}
                       </p>
                       <p className="mt-1 text-xs text-slate-400">
-                      Auto-detected:{" "}
-                      {autoTrackedPlayer
-                        ? `${formatCharacterName(autoTrackedPlayer.character)} • ${getPlayerIdentityLabel(autoTrackedPlayer)}`
-                        : "No tag match"}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Using:{" "}
-                      {resolvedPlayer
-                        ? `${formatCharacterName(resolvedPlayer.character)} • ${getPlayerIdentityLabel(resolvedPlayer)}`
-                        : "Unassigned"}
-                    </p>
+                        Auto-detected:{" "}
+                        {autoTrackedPlayer
+                          ? `${formatCharacterName(autoTrackedPlayer.character)} • ${getPlayerIdentityLabel(autoTrackedPlayer)}`
+                          : "No tag match"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        Using:{" "}
+                        {resolvedPlayer
+                          ? `${formatCharacterName(resolvedPlayer.character)} • ${getPlayerIdentityLabel(resolvedPlayer)}`
+                          : "Unassigned"}
+                      </p>
                     </div>
 
                     <label className="flex w-full flex-col gap-2 text-sm text-slate-300 lg:w-80">
@@ -699,8 +705,8 @@ export default function TrendDashboard({
                         onChange={(event) =>
                           setReplayOverrides((current) => ({
                             ...current,
-                            [replayId]:
-                              event.target.value as ReplayOverrideValue,
+                            [replayId]: event.target
+                              .value as ReplayOverrideValue,
                           }))
                         }
                         className="w-full rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
@@ -708,14 +714,14 @@ export default function TrendDashboard({
                         <option value="auto">Auto</option>
                         {(replay.metadata?.players ?? []).map((player) => (
                           <option
-                          key={`${replayId}-${player.player_index}`}
-                          value={`${player.player_index}`}
-                        >
-                          P{player.player_index + 1}:{" "}
-                          {formatCharacterName(player.character)} •{" "}
-                          {getPlayerIdentityLabel(player)}
-                        </option>
-                      ))}
+                            key={`${replayId}-${player.player_index}`}
+                            value={`${player.player_index}`}
+                          >
+                            P{player.player_index + 1}:{" "}
+                            {formatCharacterName(player.character)} •{" "}
+                            {getPlayerIdentityLabel(player)}
+                          </option>
+                        ))}
                       </select>
                     </label>
                   </div>
@@ -821,7 +827,9 @@ export default function TrendDashboard({
                       <p className="mt-1 text-xs text-slate-400">
                         {formatCharacterName(match.character)} vs{" "}
                         {formatCharacterName(match.opponentCharacter)}
-                        {match.stage ? ` • ${match.stage}` : ""}
+                        {formatStageName(match.stage)
+                          ? ` • ${formatStageName(match.stage)}`
+                          : ""}
                       </p>
                       <p className="mt-1 text-xs text-slate-500">
                         {`Session ${(sessionByReplayId.get(match.replayId) ?? 0) + 1} • `}

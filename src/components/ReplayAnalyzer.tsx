@@ -310,9 +310,12 @@ export default function ReplayAnalyzer() {
     <div className="min-h-screen bg-linear-to-br from-purple-900 via-slate-900 to-slate-800 p-6">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-12">
-          <h1 className="text-5xl font-bold text-white mb-2">StockSense</h1>
-          <p className="text-purple-200 text-lg">
+        <div className="mb-12">
+          <div className="flex items-center justify-center gap-3 mb-2">
+            <img src="/stocksense.png" alt="StockSense" className="h-20 w-20" />
+            <h1 className="text-5xl font-bold text-white">StockSense</h1>
+          </div>
+          <p className="text-purple-200 text-lg text-center">
             A Melee Replay Analyzer and Coach
           </p>
         </div>

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 
 import CharacterIcon from "./CharacterIcon";
+import { exampleReplayAnalysis } from "./exampleReplayAnalysis";
 import StageHitMap, { getStageLayout } from "./StageHitMap";
 import TrendDashboard from "./TrendDashboard";
 import type {
@@ -217,6 +218,7 @@ export default function ReplayAnalyzer() {
   const [selectedTag, setSelectedTag] = useState("");
   const [selectionLabel, setSelectionLabel] = useState<string>("");
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
+  const [isDemoReplay, setIsDemoReplay] = useState(false);
   const stageDisplayName = getStageLayout(
     analysis?.metadata?.stage,
   ).displayName;
@@ -256,6 +258,7 @@ export default function ReplayAnalyzer() {
     setSelectedFiles([selectedFile]);
     setUploadSource("single");
     setSelectionLabel(selectedFile.name);
+    setIsDemoReplay(false);
     setError(null);
   };
 
@@ -278,6 +281,7 @@ export default function ReplayAnalyzer() {
     setSelectionLabel(
       `${validFiles.length} replay${validFiles.length === 1 ? "" : "s"} selected`,
     );
+    setIsDemoReplay(false);
     setError(null);
   };
 
@@ -315,6 +319,21 @@ export default function ReplayAnalyzer() {
     };
   };
 
+  const loadDemoReplay = () => {
+    setSelectedFiles([]);
+    setUploadSource(null);
+    setSelectionLabel("Example replay loaded");
+    setLoading(false);
+    setUploadProgress(null);
+    setAnalysisProgress(null);
+    setError(null);
+    setBatchAnalysis(null);
+    setAnalysis(normalizeSingleAnalysis(exampleReplayAnalysis));
+    setActiveTab("overview");
+    setIsDemoReplay(true);
+    clearPickerValues();
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -329,6 +348,7 @@ export default function ReplayAnalyzer() {
     setError(null);
     setAnalysis(null);
     setBatchAnalysis(null);
+    setIsDemoReplay(false);
 
     try {
       const formData = new FormData();
@@ -399,7 +419,6 @@ export default function ReplayAnalyzer() {
   return (
     <div className="min-h-screen bg-linear-to-br from-purple-900 via-slate-900 to-slate-800 p-6">
       <div className="max-w-4xl mx-auto">
-        {/* Header */}
         <div className="mb-12">
           <div className="flex items-center justify-center gap-1 mb-2">
             <img
@@ -415,7 +434,6 @@ export default function ReplayAnalyzer() {
         </div>
 
         <div className={"grid gap-8 justify-center"}>
-          {/* Upload Section */}
           <div
             className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
               analysis ? "p-5" : "p-8"
@@ -436,6 +454,11 @@ export default function ReplayAnalyzer() {
                   <p className="text-sm text-purple-200">
                     Analysis loaded. Choose another replay or folder to replace
                     it.
+                  </p>
+                )}
+                {isDemoReplay && (
+                  <p className="mt-2 inline-flex rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-200">
+                    Demo replay loaded
                   </p>
                 )}
               </div>
@@ -509,6 +532,23 @@ export default function ReplayAnalyzer() {
                     </button>
                   </div>
 
+                  {!analysis && !batchAnalysis && (
+                    <button
+                      type="button"
+                      onClick={loadDemoReplay}
+                      disabled={loading}
+                      className="rounded-xl border border-dashed border-slate-600/80 bg-slate-900/35 px-4 py-3 text-left transition hover:border-cyan-400/60 hover:bg-slate-900/55 disabled:opacity-50"
+                    >
+                      <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-400">
+                        Need a demo?
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-cyan-300">
+                        Don&apos;t have a `.slp` but want to demo the site?
+                        Click here!
+                      </p>
+                    </button>
+                  )}
+
                   {selectionLabel && (
                     <p className="text-sm text-green-400">✓ {selectionLabel}</p>
                   )}
@@ -520,7 +560,6 @@ export default function ReplayAnalyzer() {
                   )}
                 </div>
 
-                {/* Error Message */}
                 {error && (
                   <div className="bg-red-900/30 border border-red-600/50 rounded-lg p-4">
                     <p className="text-red-200 text-sm">⚠️ {error}</p>
@@ -565,7 +604,6 @@ export default function ReplayAnalyzer() {
                   </div>
                 )}
 
-                {/* Submit Button */}
                 <button
                   type="submit"
                   disabled={selectedFiles.length === 0 || loading}
@@ -589,7 +627,6 @@ export default function ReplayAnalyzer() {
               </form>
             </div>
 
-            {/* Info Box */}
             {!analysis && (
               <div className="mt-8 p-4 bg-slate-700/50 rounded-lg border border-purple-400/20">
                 <p className="text-xs text-gray-300">
@@ -600,13 +637,19 @@ export default function ReplayAnalyzer() {
             )}
           </div>
 
-          {/* Analysis Results */}
           <div className="lg:col-span-1">
             {analysis && (
               <div className="bg-slate-800 rounded-xl shadow-2xl p-8 border border-green-500/20 space-y-6">
-                <h2 className="text-2xl font-bold text-white">
-                  Analysis Results
-                </h2>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <h2 className="text-2xl font-bold text-white">
+                    Analysis Results
+                  </h2>
+                  {isDemoReplay && (
+                    <div className="inline-flex w-fit rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-100">
+                      Example data for product demos
+                    </div>
+                  )}
+                </div>
 
                 <div className="inline-flex rounded-xl border border-slate-600 bg-slate-900/50 p-1">
                   <button
@@ -635,7 +678,6 @@ export default function ReplayAnalyzer() {
 
                 {activeTab === "overview" && (
                   <>
-                    {/* Metadata */}
                     {analysis.metadata && (
                       <div className="space-y-3 pb-4 border-b border-slate-700">
                         <h3 className="text-sm font-semibold text-purple-300 uppercase">
@@ -704,7 +746,6 @@ export default function ReplayAnalyzer() {
                       </div>
                     )}
 
-                    {/* Stats */}
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-purple-300 uppercase">
                         Game Stats
@@ -731,7 +772,6 @@ export default function ReplayAnalyzer() {
                       </div>
                     </div>
 
-                    {/* Feedback */}
                     <div className="space-y-3">
                       <h3 className="text-sm font-semibold text-purple-300 uppercase">
                         Coaching Feedback
@@ -799,7 +839,6 @@ export default function ReplayAnalyzer() {
                       )}
                     </div>
 
-                    {/* Per-Player Advanced Stats */}
                     {analysis.stats.per_player.length > 0 && (
                       <div className="space-y-3">
                         <h3 className="text-sm font-semibold text-purple-300 uppercase">

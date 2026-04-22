@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import CharacterIcon from "./CharacterIcon";
 import type {
   AnalysisMetadataPlayer,
   BatchAnalysisResponse,
@@ -21,6 +22,9 @@ type TrendMatch = {
   didWin: boolean;
   stats: PerPlayerStats;
   trackedPlayer: AnalysisMetadataPlayer;
+  trackedPlayerStocksLeft: number | null;
+  opponent?: AnalysisMetadataPlayer;
+  opponentStocksLeft: number | null;
   opponentCharacter: string;
   opponentTag: string;
 };
@@ -30,7 +34,8 @@ type TrendMetricKey =
   | "tech_miss_rate"
   | "neutral_win_rate"
   | "damage_per_opening"
-  | "actions_per_minute";
+  | "actions_per_minute"
+  | "stocks_remaining";
 
 const metricConfig: Array<{
   key: TrendMetricKey;
@@ -71,6 +76,12 @@ const metricConfig: Array<{
     label: "Actions Per Minute",
     description: "Overall action volume normalized by match length",
     color: "#38bdf8",
+  },
+  {
+    key: "stocks_remaining",
+    label: "Stocks Remaining",
+    description: "How many stocks you had left when the replay ended",
+    color: "#f472b6",
   },
 ];
 
@@ -179,6 +190,9 @@ function getTrendMatches(
       didWin: trackedPlayer.did_win,
       stats,
       trackedPlayer,
+      trackedPlayerStocksLeft: trackedPlayer.stocks_left,
+      opponent,
+      opponentStocksLeft: opponent?.stocks_left ?? null,
       opponentCharacter: opponent?.character ?? "Unknown",
       opponentTag: opponent?.tag ?? `Player ${trackedPlayer.player_index + 1}`,
     };
@@ -226,6 +240,21 @@ function averageBy<T>(items: T[], selector: (item: T) => number) {
 
 function roundValue(value: number, digits = 1) {
   return Number(value.toFixed(digits));
+}
+
+function averageDefinedNumbers(values: Array<number | null | undefined>) {
+  const definedValues = values.filter(
+    (value): value is number => typeof value === "number",
+  );
+
+  if (definedValues.length === 0) {
+    return null;
+  }
+
+  return (
+    definedValues.reduce((total, value) => total + value, 0) /
+    definedValues.length
+  );
 }
 
 function getTechSuccessRate(techAttempts: number, missedTechs: number) {
@@ -349,7 +378,9 @@ function TrendLineChart({
   const values = matches.map((match) =>
     metricKey === "tech_miss_rate"
       ? getTechSuccessRate(match.stats.tech_attempts, match.stats.missed_techs)
-      : match.stats[metricKey],
+      : metricKey === "stocks_remaining"
+        ? (match.trackedPlayerStocksLeft ?? 0)
+        : match.stats[metricKey],
   );
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
@@ -554,6 +585,13 @@ export default function TrendDashboard({
   const avgApm = roundValue(
     averageBy(matches, (match) => match.stats.actions_per_minute),
   );
+  const avgStocksRemainingValue = averageDefinedNumbers(
+    matches.map((match) => match.trackedPlayerStocksLeft),
+  );
+  const avgStocksRemaining =
+    avgStocksRemainingValue === null
+      ? null
+      : roundValue(avgStocksRemainingValue);
   const avgOpeningsPerKill = matches.some(
     (match) => match.stats.openings_per_kill !== null,
   )
@@ -776,6 +814,11 @@ export default function TrendDashboard({
               detail="Damage converted from each opening"
             />
             <TrendStat
+              label="Avg Stocks Left"
+              value={`${avgStocksRemaining ?? "N/A"}`}
+              detail="Average stocks remaining at game end"
+            />
+            <TrendStat
               label="Avg APM"
               value={`${avgApm}`}
               detail={`Openings/Kill ${avgOpeningsPerKill ?? "N/A"}`}
@@ -790,8 +833,9 @@ export default function TrendDashboard({
               {characterCounts.map(([character, count]) => (
                 <div
                   key={character}
-                  className="rounded-full border border-slate-600 bg-slate-800/80 px-4 py-2 text-sm text-slate-200"
+                  className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-4 py-2 text-sm text-slate-200"
                 >
+                  <CharacterIcon character={character} className="h-6 w-6" />
                   {formatCharacterName(character)} • {count} replay
                   {count === 1 ? "" : "s"}
                 </div>
@@ -840,9 +884,11 @@ export default function TrendDashboard({
                       <p className="text-sm font-semibold text-white">
                         {match.filename}
                       </p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        {formatCharacterName(match.character)} vs{" "}
-                        {formatCharacterName(match.opponentCharacter)}
+                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                        <span className="inline-flex items-center gap-2">
+                          {formatCharacterName(match.character)} vs{" "}
+                          {formatCharacterName(match.opponentCharacter)}
+                        </span>
                         {formatStageName(match.stage)
                           ? ` • ${formatStageName(match.stage)}`
                           : ""}
@@ -867,6 +913,33 @@ export default function TrendDashboard({
                     >
                       {match.didWin ? "Win" : "Loss"}
                     </span>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
+                      <CharacterIcon
+                        character={match.character}
+                        className="h-7 w-7"
+                      />
+                      <span>{getPlayerIdentityLabel(match.trackedPlayer)}</span>
+                      <span className="text-slate-400">•</span>
+                      <span>
+                        {match.trackedPlayerStocksLeft ?? "N/A"} stocks
+                      </span>
+                    </div>
+                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
+                      <CharacterIcon
+                        character={match.opponentCharacter}
+                        className="h-7 w-7"
+                      />
+                      <span>
+                        {match.opponent
+                          ? getPlayerIdentityLabel(match.opponent)
+                          : match.opponentTag}
+                      </span>
+                      <span className="text-slate-400">•</span>
+                      <span>{match.opponentStocksLeft ?? "N/A"} stocks</span>
+                    </div>
                   </div>
 
                   <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">

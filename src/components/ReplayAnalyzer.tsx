@@ -401,8 +401,12 @@ export default function ReplayAnalyzer() {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-12">
-          <div className="flex items-center justify-center gap-3 mb-2">
-            <img src="/stocksense.png" alt="StockSense" className="h-20 w-20" />
+          <div className="flex items-center justify-center gap-1 mb-2">
+            <img
+              src="/stocksense.png"
+              alt="StockSense"
+              className="h-17 w-17 mt-2"
+            />
             <h1 className="text-5xl font-bold text-white">StockSense</h1>
           </div>
           <p className="text-purple-200 text-lg text-center">

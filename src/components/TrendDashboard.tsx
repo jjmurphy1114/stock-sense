@@ -43,6 +43,7 @@ const metricConfig: Array<{
   description: string;
   color: string;
   suffix?: string;
+  unitLabel?: string;
 }> = [
   {
     key: "l_cancel_rate",
@@ -50,6 +51,7 @@ const metricConfig: Array<{
     description: "Successful L-cancels as a share of all L-cancel attempts",
     color: "#a78bfa",
     suffix: "%",
+    unitLabel: "percent",
   },
   {
     key: "tech_miss_rate",
@@ -57,6 +59,7 @@ const metricConfig: Array<{
     description: "Successful techs as a share of all tech situations",
     color: "#f97316",
     suffix: "%",
+    unitLabel: "percent",
   },
   {
     key: "neutral_win_rate",
@@ -64,24 +67,31 @@ const metricConfig: Array<{
     description: "Openings you won out of all neutral openings in the game",
     color: "#34d399",
     suffix: "%",
+    unitLabel: "percent",
   },
   {
     key: "damage_per_opening",
     label: "Damage Per Opening",
     description: "Average damage converted each time you won an opening",
     color: "#fbbf24",
+    suffix: " dmg",
+    unitLabel: "damage",
   },
   {
     key: "actions_per_minute",
     label: "Actions Per Minute",
     description: "Overall action volume normalized by match length",
     color: "#38bdf8",
+    suffix: " APM",
+    unitLabel: "APM",
   },
   {
     key: "stocks_remaining",
     label: "Stocks Remaining",
     description: "How many stocks you had left when the replay ended",
     color: "#f472b6",
+    suffix: " stocks",
+    unitLabel: "stocks",
   },
 ];
 
@@ -242,6 +252,10 @@ function roundValue(value: number, digits = 1) {
   return Number(value.toFixed(digits));
 }
 
+function formatMetricValue(value: number, suffix = "") {
+  return `${roundValue(value)}${suffix}`;
+}
+
 function averageDefinedNumbers(values: Array<number | null | undefined>) {
   const definedValues = values.filter(
     (value): value is number => typeof value === "number",
@@ -385,6 +399,7 @@ function TrendLineChart({
   const minValue = Math.min(...values);
   const maxValue = Math.max(...values);
   const valueRange = maxValue - minValue || 1;
+  const yAxisTicks = [maxValue, minValue + valueRange / 2, minValue];
   const dividerXs = sessionIndices
     .map((_, index) => ({ index }))
     .filter(
@@ -419,14 +434,8 @@ function TrendLineChart({
           <p className="mt-1 text-xs text-slate-400">{description}</p>
         </div>
         <div className="text-right text-xs text-slate-400">
-          <p>
-            High {roundValue(maxValue)}
-            {suffix}
-          </p>
-          <p>
-            Low {roundValue(minValue)}
-            {suffix}
-          </p>
+          <p>High {formatMetricValue(maxValue, suffix)}</p>
+          <p>Low {formatMetricValue(minValue, suffix)}</p>
         </div>
       </div>
 
@@ -460,6 +469,34 @@ function TrendLineChart({
           stroke="#475569"
           strokeWidth="1"
         />
+        {yAxisTicks.map((tickValue) => {
+          const y =
+            height -
+            paddingY -
+            ((tickValue - minValue) / valueRange) * (height - paddingY * 2);
+
+          return (
+            <g key={`${label}-tick-${tickValue}`}>
+              <line
+                x1={paddingX - 4}
+                y1={y}
+                x2={paddingX}
+                y2={y}
+                stroke="#64748b"
+                strokeWidth="1"
+              />
+              <text
+                x={paddingX - 8}
+                y={y + 3}
+                fill="#94a3b8"
+                fontSize="9"
+                textAnchor="end"
+              >
+                {formatMetricValue(tickValue, suffix)}
+              </text>
+            </g>
+          );
+        })}
         <text
           x={width / 2}
           y={height - 4}
@@ -468,16 +505,6 @@ function TrendLineChart({
           textAnchor="middle"
         >
           Games in chronological order
-        </text>
-        <text
-          x={10}
-          y={height / 2}
-          fill="#94a3b8"
-          fontSize="10"
-          textAnchor="middle"
-          transform={`rotate(-90 10 ${height / 2})`}
-        >
-          {`${label}${suffix ? ` (${suffix})` : ""}`}
         </text>
         <polyline
           fill="none"
@@ -502,7 +529,10 @@ function TrendLineChart({
             <g key={`${label}-${matches[index].replayId}`}>
               <circle cx={x} cy={y} r="4" fill={color} />
               <title>
-                {`${matches[index].filename}: ${roundValue(value)}${suffix}${
+                {`${matches[index].filename}: ${formatMetricValue(
+                  value,
+                  suffix,
+                )}${
                   matches[index].startedAt
                     ? ` • ${formatReplayTime(matches[index].startedAt)}`
                     : ""
@@ -801,7 +831,6 @@ export default function TrendDashboard({
             <TrendStat
               label="Avg Successful Tech"
               value={`${avgTechSuccess}%`}
-              detail="Higher is better"
             />
             <TrendStat
               label="Avg Neutral Win"
@@ -816,12 +845,11 @@ export default function TrendDashboard({
             <TrendStat
               label="Avg Stocks Left"
               value={`${avgStocksRemaining ?? "N/A"}`}
-              detail="Average stocks remaining at game end"
             />
+            <TrendStat label="Avg APM" value={`${avgApm}`} />
             <TrendStat
-              label="Avg APM"
-              value={`${avgApm}`}
-              detail={`Openings/Kill ${avgOpeningsPerKill ?? "N/A"}`}
+              label="Avg Openings/Kill"
+              value={`${avgOpeningsPerKill ?? "N/A"}`}
             />
           </div>
 

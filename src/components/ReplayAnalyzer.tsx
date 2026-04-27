@@ -885,7 +885,8 @@ export default function ReplayAnalyzer() {
                                 />
                                 <StatTile
                                   label="Tech Direction"
-                                  value={`L ${player.tech_left_count} • R ${player.tech_right_count} • N ${player.tech_in_place_count}`}
+                                  value={`Toward ${player.tech_towards_count} • Away ${player.tech_away_count} • In Place ${player.tech_in_place_count}`}
+                                  detail="Successful techs relative to opponent position"
                                 />
                                 <StatTile
                                   label="APM"

@@ -609,6 +609,18 @@ export default function TrendDashboard({
   const avgNeutralWin = roundValue(
     averageBy(matches, (match) => match.stats.neutral_win_rate),
   );
+  const totalTechToward = matches.reduce(
+    (total, match) => total + match.stats.tech_towards_count,
+    0,
+  );
+  const totalTechAway = matches.reduce(
+    (total, match) => total + match.stats.tech_away_count,
+    0,
+  );
+  const totalTechInPlace = matches.reduce(
+    (total, match) => total + match.stats.tech_in_place_count,
+    0,
+  );
   const avgDamagePerOpening = roundValue(
     averageBy(matches, (match) => match.stats.damage_per_opening),
   );
@@ -833,6 +845,11 @@ export default function TrendDashboard({
               value={`${avgTechSuccess}%`}
             />
             <TrendStat
+              label="Tech Split (Toward/Away/IP)"
+              value={`${totalTechToward} • ${totalTechAway} • ${totalTechInPlace}`}
+              detail="Successful techs toward, away, and in-place"
+            />
+            <TrendStat
               label="Avg Neutral Win"
               value={`${avgNeutralWin}%`}
               detail="Average neutral win rate"
@@ -970,7 +987,7 @@ export default function TrendDashboard({
                     </div>
                   </div>
 
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:grid-cols-5">
                     <div className="rounded-lg bg-slate-800/70 p-3">
                       <p className="text-slate-400">L-Cancel</p>
                       <p className="mt-1 font-semibold text-white">
@@ -985,6 +1002,14 @@ export default function TrendDashboard({
                           match.stats.missed_techs,
                         )}
                         %
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-slate-800/70 p-3">
+                      <p className="text-slate-400">Tech Direction</p>
+                      <p className="mt-1 font-semibold text-white">
+                        T {match.stats.tech_towards_count} • A{" "}
+                        {match.stats.tech_away_count} • IP{" "}
+                        {match.stats.tech_in_place_count}
                       </p>
                     </div>
                     <div className="rounded-lg bg-slate-800/70 p-3">

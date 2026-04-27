@@ -22,8 +22,8 @@ export interface PerPlayerStats {
   tech_attempts: number;
   missed_techs: number;
   tech_miss_rate: number;
-  tech_left_count: number;
-  tech_right_count: number;
+  tech_towards_count: number;
+  tech_away_count: number;
   tech_in_place_count: number;
   actions_per_minute: number;
   ledge_grabs: number;

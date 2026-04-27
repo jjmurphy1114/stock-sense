@@ -382,20 +382,50 @@ def _vector_magnitude(dx: float, dy: float) -> float:
     return ((dx * dx) + (dy * dy)) ** 0.5
 
 
-def _tech_direction_bucket(state_name: str, facing_direction: float | None) -> str | None:
+def _tech_travel_direction(state_name: str, facing_direction: float | None) -> float | None:
     if not _is_tech_success_state(state_name):
         return None
     if "PASSIVE_STAND_F" in state_name:
         if facing_direction is None:
-            return "right"
-        return "right" if facing_direction >= 0 else "left"
+            return 1.0
+        return 1.0 if facing_direction >= 0 else -1.0
     if "PASSIVE_STAND_B" in state_name:
         if facing_direction is None:
-            return "left"
-        return "left" if facing_direction >= 0 else "right"
+            return -1.0
+        return -1.0 if facing_direction >= 0 else 1.0
     if "PASSIVE" in state_name:
-        return "in_place"
+        return 0.0
     return None
+
+
+def _tech_direction_bucket(
+    state_name: str,
+    facing_direction: float | None,
+    player_position: tuple[float, float] | None,
+    other_positions: List[tuple[float, float]],
+) -> str | None:
+    horizontal_direction = _tech_travel_direction(state_name, facing_direction)
+    if horizontal_direction is None:
+        return None
+    if horizontal_direction == 0.0:
+        return "in_place"
+    if player_position is None or not other_positions:
+        return None
+
+    nearest_opponent_position = min(
+        other_positions,
+        key=lambda position: abs(position[0] - player_position[0]),
+    )
+    opponent_offset_x = nearest_opponent_position[0] - player_position[0]
+    if abs(opponent_offset_x) < 0.01:
+        return None
+
+    is_towards = (
+        horizontal_direction > 0 and opponent_offset_x > 0
+    ) or (
+        horizontal_direction < 0 and opponent_offset_x < 0
+    )
+    return "towards" if is_towards else "away"
 
 
 def _build_player_map(game: Game) -> Dict[int, Dict[str, Any]]:
@@ -470,8 +500,8 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "l_cancel_successes": 0,
                 "tech_attempts": 0,
                 "missed_techs": 0,
-                "tech_left_count": 0,
-                "tech_right_count": 0,
+                "tech_towards_count": 0,
+                "tech_away_count": 0,
                 "tech_in_place_count": 0,
                 "ledge_grabs": 0,
                 "wavedashes": 0,
@@ -503,6 +533,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 "_tech_event_active": False,
                 "_tech_event_resolved": False,
                 "_tech_event_frames": 0,
+                "_pending_tech_direction": None,
                 "_pending_hit_indices": [],
             }
         
@@ -528,8 +559,8 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                                 "l_cancel_successes": 0,
                                 "tech_attempts": 0,
                                 "missed_techs": 0,
-                                "tech_left_count": 0,
-                                "tech_right_count": 0,
+                                "tech_towards_count": 0,
+                                "tech_away_count": 0,
                                 "tech_in_place_count": 0,
                                 "ledge_grabs": 0,
                                 "wavedashes": 0,
@@ -561,6 +592,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                                 "_tech_event_active": False,
                                 "_tech_event_resolved": False,
                                 "_tech_event_frames": 0,
+                                "_pending_tech_direction": None,
                                 "_pending_hit_indices": [],
                             }
 
@@ -697,13 +729,10 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                             and not _is_tech_success_state(prev_state)
                         )
                         if entered_tech_success_state:
-                            tech_direction = _tech_direction_bucket(state_name, facing_direction)
-                            if tech_direction == "left":
-                                player_stats["tech_left_count"] += 1
-                            elif tech_direction == "right":
-                                player_stats["tech_right_count"] += 1
-                            elif tech_direction == "in_place":
-                                player_stats["tech_in_place_count"] += 1
+                            player_stats["_pending_tech_direction"] = {
+                                "state_name": state_name,
+                                "facing_direction": facing_direction,
+                            }
 
                         if player_stats["_tech_event_active"] and not player_stats["_tech_event_resolved"]:
                             if _is_tech_success_state(state_name):
@@ -749,6 +778,28 @@ def extract_stats(game: Game) -> Dict[str, Any]:
 
             for player_idx, snapshot in frame_snapshots.items():
                 player_stats = per_player_work[player_idx]
+                pending_tech_direction = player_stats.get("_pending_tech_direction")
+                if pending_tech_direction:
+                    player_position = snapshot.get("position")
+                    other_positions = [
+                        other_snapshot["position"]
+                        for other_idx, other_snapshot in frame_snapshots.items()
+                        if other_idx != player_idx and other_snapshot.get("position") is not None
+                    ]
+                    tech_direction = _tech_direction_bucket(
+                        pending_tech_direction["state_name"],
+                        pending_tech_direction["facing_direction"],
+                        player_position,
+                        other_positions,
+                    )
+                    if tech_direction == "towards":
+                        player_stats["tech_towards_count"] += 1
+                    elif tech_direction == "away":
+                        player_stats["tech_away_count"] += 1
+                    elif tech_direction == "in_place":
+                        player_stats["tech_in_place_count"] += 1
+                    player_stats["_pending_tech_direction"] = None
+
                 position_now = snapshot.get("position")
                 pending_hit_indices = player_stats.get("_pending_hit_indices", [])
                 if position_now is not None and pending_hit_indices:
@@ -909,8 +960,8 @@ def extract_stats(game: Game) -> Dict[str, Any]:
             l_cancel_successes = player_stats["l_cancel_successes"]
             tech_attempts = player_stats["tech_attempts"]
             missed_techs = player_stats["missed_techs"]
-            tech_left_count = player_stats["tech_left_count"]
-            tech_right_count = player_stats["tech_right_count"]
+            tech_towards_count = player_stats["tech_towards_count"]
+            tech_away_count = player_stats["tech_away_count"]
             tech_in_place_count = player_stats["tech_in_place_count"]
             ledge_grabs = player_stats["ledge_grabs"]
             wavedashes = player_stats["wavedashes"]
@@ -951,8 +1002,8 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                     "tech_attempts": tech_attempts,
                     "missed_techs": missed_techs,
                     "tech_miss_rate": tech_miss_rate,
-                    "tech_left_count": tech_left_count,
-                    "tech_right_count": tech_right_count,
+                    "tech_towards_count": tech_towards_count,
+                    "tech_away_count": tech_away_count,
                     "tech_in_place_count": tech_in_place_count,
                     "actions_per_minute": actions_per_minute,
                     "ledge_grabs": ledge_grabs,

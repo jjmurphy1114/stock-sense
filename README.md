@@ -27,8 +27,8 @@ StockSense is a replay-analysis web app for Super Smash Bros. Melee `.slp` files
 - L-cancel attempts, successes, and success rate
 - Tech attempts, missed techs, and tech miss rate
 - Tech direction split:
-  - left
-  - right
+  - towards opponent
+  - away from opponent
   - in place
 - Actions per minute
 - Ledge grabs

@@ -78,6 +78,11 @@ export interface AnalysisResponse {
   };
 }
 
+export interface PersistedAnalysisResponse
+  extends Omit<AnalysisResponse, "stats"> {
+  stats: Omit<AnalysisResponse["stats"], "hit_locations">;
+}
+
 export interface ReplayAnalysisWithFile extends AnalysisResponse {
   filename: string;
 }
@@ -91,6 +96,18 @@ export interface BatchAnalysisResponse {
   replays: ReplayAnalysisWithFile[];
   available_tags: string[];
   failed_files: BatchFailure[];
+}
+
+export interface SavedGameRecord {
+  id: string;
+  filename: string;
+  uploadMode: "single" | "folder";
+  createdAt: string | null;
+  summary: string;
+  stage: string | null;
+  startedAt: string | null;
+  playerTags: string[];
+  analysis: PersistedAnalysisResponse;
 }
 
 const characterDisplayNames: Record<string, string> = {

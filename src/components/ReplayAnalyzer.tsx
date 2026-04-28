@@ -9,6 +9,13 @@ import type {
   BatchAnalysisResponse,
 } from "./replayAnalysisTypes";
 import { formatCharacterName } from "./replayAnalysisTypes";
+import type { User } from "firebase/auth";
+import {
+  saveBatchGameAnalyses,
+  saveSingleGameAnalysis,
+  type SaveGameResult,
+} from "../lib/gameHistory";
+import AccountPanel from "./AccountPanel";
 
 type AnalysisTab = "overview" | "graph";
 
@@ -201,7 +208,23 @@ function getDefaultBatchTag(data: BatchAnalysisResponse): string {
   return rankedTags[0]?.[0] ?? data.available_tags[0] ?? "";
 }
 
-export default function ReplayAnalyzer() {
+type ReplayAnalyzerProps = {
+  currentUser: User | null;
+  authReady: boolean;
+  authError: string | null;
+  onSignIn: () => Promise<void>;
+  onSignOut: () => Promise<void>;
+  onSavedGamesChanged?: () => Promise<void>;
+};
+
+export default function ReplayAnalyzer({
+  currentUser,
+  authReady,
+  authError,
+  onSignIn,
+  onSignOut,
+  onSavedGamesChanged,
+}: ReplayAnalyzerProps) {
   const singleFileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -219,6 +242,7 @@ export default function ReplayAnalyzer() {
   const [selectionLabel, setSelectionLabel] = useState<string>("");
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
   const [isDemoReplay, setIsDemoReplay] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const stageDisplayName = getStageLayout(
     analysis?.metadata?.stage,
   ).displayName;
@@ -334,6 +358,58 @@ export default function ReplayAnalyzer() {
     clearPickerValues();
   };
 
+  const persistCompletedAnalysis = async (
+    isBatchUpload: boolean,
+    singleAnalysis: AnalysisResponse | null,
+    batchData: BatchAnalysisResponse | null,
+    uploadedFileNames: string[],
+  ) => {
+    if (!currentUser) {
+      setSaveMessage("Analysis ready. Sign in with Google to save uploads.");
+      return;
+    }
+
+    if (isBatchUpload && batchData) {
+      const results = await saveBatchGameAnalyses(currentUser.uid, batchData.replays);
+      await onSavedGamesChanged?.();
+      const savedCount = results.filter((result) => result.status === "saved").length;
+      const duplicateCount = results.filter(
+        (result) => result.status === "duplicate",
+      ).length;
+      const parts = [];
+
+      if (savedCount > 0) {
+        parts.push(`Saved ${savedCount} game record${savedCount === 1 ? "" : "s"}.`);
+      }
+      if (duplicateCount > 0) {
+        parts.push(
+          `Skipped ${duplicateCount} duplicate replay${duplicateCount === 1 ? "" : "s"}.`,
+        );
+      }
+
+      setSaveMessage(parts.join(" ") || "No new game records were saved.");
+      return;
+    }
+
+    if (singleAnalysis && uploadedFileNames[0]) {
+      const result = await saveSingleGameAnalysis(
+        currentUser.uid,
+        uploadedFileNames[0],
+        singleAnalysis,
+      );
+      await onSavedGamesChanged?.();
+      setSaveMessage(getSingleSaveMessage(result));
+    }
+  };
+
+  const getSingleSaveMessage = (result: SaveGameResult) => {
+    if (result.status === "duplicate") {
+      return `${result.filename} is already in your saved games.`;
+    }
+
+    return `Saved ${result.filename} to your game history.`;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -349,11 +425,13 @@ export default function ReplayAnalyzer() {
     setAnalysis(null);
     setBatchAnalysis(null);
     setIsDemoReplay(false);
+    setSaveMessage(null);
 
     try {
       const formData = new FormData();
       const isBatchUpload =
         uploadSource === "folder" || selectedFiles.length > 1;
+      const uploadedFileNames = selectedFiles.map((file) => file.name);
       if (isBatchUpload) {
         selectedFiles.forEach((file) => {
           formData.append("files", file);
@@ -396,11 +474,18 @@ export default function ReplayAnalyzer() {
         const data = normalizeBatchResponse(rawData);
         setBatchAnalysis(data);
         setSelectedTag(getDefaultBatchTag(data));
+        await persistCompletedAnalysis(isBatchUpload, null, data, uploadedFileNames);
       } else {
         const rawData = result as AnalysisResponse;
         const data = normalizeSingleAnalysis(rawData);
         setAnalysis(data);
         setActiveTab("overview");
+        await persistCompletedAnalysis(
+          isBatchUpload,
+          data,
+          null,
+          uploadedFileNames,
+        );
       }
 
       setSelectedFiles([]);
@@ -417,28 +502,22 @@ export default function ReplayAnalyzer() {
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-purple-900 via-slate-900 to-slate-800 p-6">
-      <div className="max-w-4xl mx-auto">
-        <div className="mb-12">
-          <div className="flex items-center justify-center gap-1 mb-2">
-            <img
-              src="/stocksense.png"
-              alt="StockSense"
-              className="h-17 w-17 mt-2"
-            />
-            <h1 className="text-5xl font-bold text-white">StockSense</h1>
-          </div>
-          <p className="text-purple-200 text-lg text-center">
-            A Melee Replay Analyzer and Coach
-          </p>
-        </div>
-
-        <div className={"grid gap-8 justify-center"}>
+    <div className="mx-auto max-w-4xl">
+      <div className={"grid gap-8 justify-center"}>
           <div
             className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
               analysis ? "p-5" : "p-8"
             }`}
           >
+            <AccountPanel
+              authError={authError}
+              authReady={authReady}
+              currentUser={currentUser}
+              onSignIn={onSignIn}
+              onSignOut={onSignOut}
+              saveMessage={saveMessage}
+            />
+
             <div
               className={`${
                 analysis
@@ -968,7 +1047,6 @@ export default function ReplayAnalyzer() {
               </div>
             )}
           </div>
-        </div>
       </div>
     </div>
   );

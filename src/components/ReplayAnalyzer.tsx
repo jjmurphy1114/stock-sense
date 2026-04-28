@@ -1,21 +1,21 @@
 import { useRef, useState } from "react";
+import type { User } from "firebase/auth";
 
+import { getStageLayout } from "../lib/stageLayout";
+import {
+  saveBatchGameAnalyses,
+  saveSingleGameAnalysis,
+  type SaveGameResult,
+} from "../lib/gameHistory";
 import CharacterIcon from "./CharacterIcon";
 import { exampleReplayAnalysis } from "./exampleReplayAnalysis";
-import StageHitMap, { getStageLayout } from "./StageHitMap";
+import StageHitMap from "./StageHitMap";
 import TrendDashboard from "./TrendDashboard";
 import type {
   AnalysisResponse,
   BatchAnalysisResponse,
 } from "./replayAnalysisTypes";
 import { formatCharacterName } from "./replayAnalysisTypes";
-import type { User } from "firebase/auth";
-import {
-  saveBatchGameAnalyses,
-  saveSingleGameAnalysis,
-  type SaveGameResult,
-} from "../lib/gameHistory";
-import AccountPanel from "./AccountPanel";
 
 type AnalysisTab = "overview" | "graph";
 
@@ -210,19 +210,11 @@ function getDefaultBatchTag(data: BatchAnalysisResponse): string {
 
 type ReplayAnalyzerProps = {
   currentUser: User | null;
-  authReady: boolean;
-  authError: string | null;
-  onSignIn: () => Promise<void>;
-  onSignOut: () => Promise<void>;
   onSavedGamesChanged?: () => Promise<void>;
 };
 
 export default function ReplayAnalyzer({
   currentUser,
-  authReady,
-  authError,
-  onSignIn,
-  onSignOut,
   onSavedGamesChanged,
 }: ReplayAnalyzerProps) {
   const singleFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -504,20 +496,11 @@ export default function ReplayAnalyzer({
   return (
     <div className="mx-auto max-w-4xl">
       <div className={"grid gap-8 justify-center"}>
-          <div
-            className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
+        <div
+          className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
               analysis ? "p-5" : "p-8"
             }`}
           >
-            <AccountPanel
-              authError={authError}
-              authReady={authReady}
-              currentUser={currentUser}
-              onSignIn={onSignIn}
-              onSignOut={onSignOut}
-              saveMessage={saveMessage}
-            />
-
             <div
               className={`${
                 analysis
@@ -534,6 +517,9 @@ export default function ReplayAnalyzer({
                     Analysis loaded. Choose another replay or folder to replace
                     it.
                   </p>
+                )}
+                {saveMessage && (
+                  <p className="mt-2 text-sm text-emerald-300">{saveMessage}</p>
                 )}
                 {isDemoReplay && (
                   <p className="mt-2 inline-flex rounded-full border border-amber-400/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-amber-200">

@@ -12,9 +12,16 @@ import {
   type User,
 } from "firebase/auth";
 
+import ProfileMenu from "./components/ProfileMenu";
 import ReplayAnalyzer from "./components/ReplayAnalyzer";
 import SavedGamesPage from "./components/SavedGamesPage";
 import { auth, firebaseConfigError, googleProvider } from "./lib/firebase";
+import {
+  getDefaultUserProfile,
+  loadUserProfile,
+  saveUserProfile,
+  type UserProfile,
+} from "./lib/userProfile";
 import "./App.css";
 
 function UploadIcon() {
@@ -42,6 +49,9 @@ function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState(!auth);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
   const [savedGamesRefreshToken, setSavedGamesRefreshToken] = useState(0);
 
   useEffect(() => {
@@ -53,10 +63,41 @@ function App() {
       setCurrentUser(user);
       setAuthReady(true);
       setAuthError(null);
+      setProfile(user ? getDefaultUserProfile(user) : null);
+      setProfileError(null);
     });
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!currentUser) {
+      return;
+    }
+
+    let active = true;
+
+    loadUserProfile(currentUser)
+      .then((nextProfile) => {
+        if (active) {
+          setProfile(nextProfile);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!active) {
+          return;
+        }
+
+        setProfile(getDefaultUserProfile(currentUser));
+        setProfileError(
+          error instanceof Error ? error.message : "Failed to load profile.",
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [currentUser]);
 
   const handleSignIn = async () => {
     if (!auth) {
@@ -88,12 +129,32 @@ function App() {
     }
   };
 
+  const handleSaveProfile = async (nextProfile: UserProfile) => {
+    if (!currentUser) {
+      return;
+    }
+
+    try {
+      setProfileSaving(true);
+      setProfileError(null);
+      const savedProfile = await saveUserProfile(currentUser, nextProfile);
+      setProfile(savedProfile);
+    } catch (error) {
+      setProfileError(
+        error instanceof Error ? error.message : "Failed to save profile.",
+      );
+      throw error;
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   return (
     <BrowserRouter>
       <div className="min-h-screen bg-linear-to-br from-purple-900 via-slate-900 to-slate-800 p-6">
         <div className="mx-auto max-w-6xl">
           <header className="mb-10">
-            <div className="mb-5 flex justify-end">
+            <div className="mb-5 flex items-start justify-between gap-4">
               <div className="flex items-center gap-3 rounded-2xl border border-slate-600 bg-slate-900/40 p-2 shadow-lg shadow-black/10">
                 <NavLink
                   to="/"
@@ -125,6 +186,18 @@ function App() {
                   <ArchiveIcon />
                 </NavLink>
               </div>
+
+              <ProfileMenu
+                authError={authError}
+                authReady={authReady}
+                currentUser={currentUser}
+                profile={profile}
+                profileError={profileError}
+                profileSaving={profileSaving}
+                onSaveProfile={handleSaveProfile}
+                onSignIn={handleSignIn}
+                onSignOut={handleSignOut}
+              />
             </div>
 
             <div className="flex justify-center">
@@ -152,10 +225,6 @@ function App() {
               element={
                 <ReplayAnalyzer
                   currentUser={currentUser}
-                  authReady={authReady}
-                  authError={authError}
-                  onSignIn={handleSignIn}
-                  onSignOut={handleSignOut}
                   onSavedGamesChanged={async () => {
                     setSavedGamesRefreshToken((value) => value + 1);
                   }}
@@ -167,10 +236,6 @@ function App() {
               element={
                 <SavedGamesPage
                   currentUser={currentUser}
-                  authReady={authReady}
-                  authError={authError}
-                  onSignIn={handleSignIn}
-                  onSignOut={handleSignOut}
                   refreshToken={savedGamesRefreshToken}
                 />
               }

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import type { User } from "firebase/auth";
 
-import AccountPanel from "./AccountPanel";
 import CharacterIcon from "./CharacterIcon";
 import type {
   AnalysisResponse,
@@ -14,10 +13,6 @@ import { loadSavedGames } from "../lib/gameHistory";
 
 type SavedGamesPageProps = {
   currentUser: User | null;
-  authReady: boolean;
-  authError: string | null;
-  onSignIn: () => Promise<void>;
-  onSignOut: () => Promise<void>;
   refreshToken: number;
 };
 
@@ -174,16 +169,13 @@ function SavedPerPlayerCard({ player }: { player: PerPlayerStats }) {
 
 export default function SavedGamesPage({
   currentUser,
-  authReady,
-  authError,
-  onSignIn,
-  onSignOut,
   refreshToken,
 }: SavedGamesPageProps) {
   const [savedGames, setSavedGames] = useState<SavedGameRecord[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
 
   useEffect(() => {
     if (!currentUser) {
@@ -238,14 +230,6 @@ export default function SavedGamesPage({
   return (
     <div className="grid gap-8">
       <div className="rounded-xl border border-cyan-500/20 bg-slate-800 p-8 shadow-2xl">
-        <AccountPanel
-          authError={authError}
-          authReady={authReady}
-          currentUser={currentUser}
-          onSignIn={onSignIn}
-          onSignOut={onSignOut}
-        />
-
         <div>
           <h2 className="text-2xl font-bold text-white">Saved Games</h2>
           <p className="mt-2 text-sm text-slate-300">
@@ -257,7 +241,8 @@ export default function SavedGamesPage({
 
       {!currentUser ? (
         <div className="rounded-xl border border-slate-600 bg-slate-800 p-6 text-sm text-slate-300 shadow-2xl">
-          Sign in to browse your saved replay history.
+          Sign in from the top-right profile menu to browse your saved replay
+          history.
         </div>
       ) : historyLoading ? (
         <div className="rounded-xl border border-slate-600 bg-slate-800 p-6 text-sm text-slate-300 shadow-2xl">
@@ -273,8 +258,35 @@ export default function SavedGamesPage({
           appear here.
         </div>
       ) : (
-        <div className="grid gap-8 lg:grid-cols-[22rem_minmax(0,1fr)]">
-          <div className="rounded-xl border border-slate-600 bg-slate-800 p-4 shadow-2xl lg:max-h-[70vh] lg:overflow-hidden">
+        <div className="grid gap-4 lg:gap-8">
+          <div className="lg:hidden">
+            <button
+              type="button"
+              onClick={() => setIsHistoryOpen((open) => !open)}
+              className="flex w-full items-center justify-between rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-left shadow-2xl transition hover:border-cyan-400/60"
+              aria-expanded={isHistoryOpen}
+              aria-controls="saved-games-history"
+            >
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                  Game History
+                </p>
+                <p className="mt-1 text-xs text-slate-400">
+                  {savedGames.length} saved
+                  {selectedGame ? ` • Viewing ${selectedGame.filename}` : ""}
+                </p>
+              </div>
+              <span className="text-sm font-semibold text-white">
+                {isHistoryOpen ? "Hide" : "Show"}
+              </span>
+            </button>
+          </div>
+
+          <div className="grid gap-8 lg:grid-cols-[22rem_minmax(0,1fr)]">
+          <div
+            id="saved-games-history"
+            className={`${isHistoryOpen ? "block" : "hidden"} rounded-xl border border-slate-600 bg-slate-800 p-4 shadow-2xl lg:block lg:max-h-[70vh] lg:overflow-hidden`}
+          >
             <div className="mb-3 flex items-center justify-between">
               <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
                 History
@@ -289,7 +301,10 @@ export default function SavedGamesPage({
                 <button
                   key={game.id}
                   type="button"
-                  onClick={() => setSelectedGameId(game.id)}
+                  onClick={() => {
+                    setSelectedGameId(game.id);
+                    setIsHistoryOpen(false);
+                  }}
                   className={`rounded-2xl border p-4 text-left transition ${
                     selectedGame?.id === game.id
                       ? "border-cyan-400/70 bg-cyan-500/10"
@@ -516,6 +531,7 @@ export default function SavedGamesPage({
               </div>
             ) : null}
           </div>
+        </div>
         </div>
       )}
     </div>

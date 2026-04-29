@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useMemo, useState } from "react";
 
 import CharacterIcon from "./CharacterIcon";
 import type {
@@ -112,6 +112,14 @@ function getReplayTimestamp(startedAt?: string) {
   return Number.isNaN(timestamp) ? null : timestamp;
 }
 
+function getReplayDateKey(startedAt?: string) {
+  if (!startedAt) {
+    return "";
+  }
+
+  return startedAt.split("T")[0] ?? "";
+}
+
 function getPlayerIdentityLabel(player: AnalysisMetadataPlayer) {
   const pieces = [
     player.connect_code,
@@ -157,6 +165,9 @@ function getTrendMatches(
   replayOverrides: Record<string, ReplayOverrideValue>,
   myCharacterFilter: string,
   opponentCharacterFilter: string,
+  stageFilter: string,
+  dateFrom: string,
+  dateTo: string,
 ) {
   const matches: TrendMatch[] = [];
 
@@ -218,6 +229,19 @@ function getTrendMatches(
       return;
     }
 
+    if (stageFilter !== "all" && match.stage !== stageFilter) {
+      return;
+    }
+
+    const replayDate = getReplayDateKey(match.startedAt);
+    if (dateFrom && (!replayDate || replayDate < dateFrom)) {
+      return;
+    }
+
+    if (dateTo && (!replayDate || replayDate > dateTo)) {
+      return;
+    }
+
     matches.push(match);
   });
 
@@ -268,6 +292,12 @@ function averageDefinedNumbers(values: Array<number | null | undefined>) {
   return (
     definedValues.reduce((total, value) => total + value, 0) /
     definedValues.length
+  );
+}
+
+function getUniqueStages(matches: TrendMatch[]) {
+  return Array.from(new Set(matches.map((match) => match.stage))).sort((a, b) =>
+    formatStageName(a).localeCompare(formatStageName(b)),
   );
 }
 
@@ -546,104 +576,178 @@ function TrendLineChart({
   );
 }
 
-export default function TrendDashboard({
+const TrendDashboard = memo(function TrendDashboard({
   batchAnalysis,
   selectedTag,
   onSelectTag,
+  heading = "Trend Tracking",
+  summaryLabel = "Uploads analyzed",
+  subtitle = "Review habits across a folder of replays by Slippi tag",
+  defaultMatchedReplaysOpen = true,
 }: {
   batchAnalysis: BatchAnalysisResponse;
   selectedTag: string;
   onSelectTag: (tag: string) => void;
+  heading?: string;
+  summaryLabel?: string;
+  subtitle?: string;
+  defaultMatchedReplaysOpen?: boolean;
 }) {
   const [replayOverrides, setReplayOverrides] = useState<
     Record<string, ReplayOverrideValue>
   >({});
   const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
+  const [isMatchedReplaysOpen, setIsMatchedReplaysOpen] = useState(
+    defaultMatchedReplaysOpen,
+  );
   const [myCharacterFilter, setMyCharacterFilter] = useState("all");
   const [opponentCharacterFilter, setOpponentCharacterFilter] = useState("all");
+  const [stageFilter, setStageFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
 
-  const allResolvedMatches = getTrendMatches(
-    batchAnalysis,
-    selectedTag,
-    replayOverrides,
-    "all",
-    "all",
+  const allResolvedMatches = useMemo(
+    () =>
+      getTrendMatches(
+        batchAnalysis,
+        selectedTag,
+        replayOverrides,
+        "all",
+        "all",
+        "all",
+        "",
+        "",
+      ),
+    [batchAnalysis, selectedTag, replayOverrides],
   );
-  const matches = getTrendMatches(
-    batchAnalysis,
-    selectedTag,
-    replayOverrides,
-    myCharacterFilter,
-    opponentCharacterFilter,
+  const matches = useMemo(
+    () =>
+      getTrendMatches(
+        batchAnalysis,
+        selectedTag,
+        replayOverrides,
+        myCharacterFilter,
+        opponentCharacterFilter,
+        stageFilter,
+        dateFrom,
+        dateTo,
+      ),
+    [
+      batchAnalysis,
+      selectedTag,
+      replayOverrides,
+      myCharacterFilter,
+      opponentCharacterFilter,
+      stageFilter,
+      dateFrom,
+      dateTo,
+    ],
   );
-  const characterCounts = getCharacterCounts(matches);
-  const sessionIndices = getSessionIndices(matches);
+  const characterCounts = useMemo(() => getCharacterCounts(matches), [matches]);
+  const sessionIndices = useMemo(() => getSessionIndices(matches), [matches]);
   const sessionCount =
     sessionIndices.length > 0
       ? sessionIndices[sessionIndices.length - 1] + 1
       : 0;
-  const sessionByReplayId = new Map(
-    matches.map((match, index) => [match.replayId, sessionIndices[index] ?? 0]),
+  const sessionByReplayId = useMemo(
+    () =>
+      new Map(
+        matches.map((match, index) => [
+          match.replayId,
+          sessionIndices[index] ?? 0,
+        ]),
+      ),
+    [matches, sessionIndices],
   );
-  const availableMyCharacters = getUniqueCharacters(
-    allResolvedMatches,
-    (match) => match.character,
+  const availableMyCharacters = useMemo(
+    () => getUniqueCharacters(allResolvedMatches, (match) => match.character),
+    [allResolvedMatches],
   );
-  const availableOpponentCharacters = getUniqueCharacters(
-    allResolvedMatches,
-    (match) => match.opponentCharacter,
+  const availableOpponentCharacters = useMemo(
+    () =>
+      getUniqueCharacters(
+        allResolvedMatches,
+        (match) => match.opponentCharacter,
+      ),
+    [allResolvedMatches],
+  );
+  const availableStages = useMemo(
+    () => getUniqueStages(allResolvedMatches),
+    [allResolvedMatches],
   );
   const overrideCount = Object.values(replayOverrides).filter(
     (value) => value !== "auto",
   ).length;
   const winCount = matches.filter((match) => match.didWin).length;
   const lossCount = matches.length - winCount;
-  const avgLCancel = roundValue(
-    averageBy(matches, (match) => match.stats.l_cancel_rate),
+  const avgLCancel = useMemo(
+    () => roundValue(averageBy(matches, (match) => match.stats.l_cancel_rate)),
+    [matches],
   );
-  const avgTechSuccess = roundValue(
-    averageBy(matches, (match) =>
-      getTechSuccessRate(match.stats.tech_attempts, match.stats.missed_techs),
-    ),
+  const avgTechSuccess = useMemo(
+    () =>
+      roundValue(
+        averageBy(matches, (match) =>
+          getTechSuccessRate(match.stats.tech_attempts, match.stats.missed_techs),
+        ),
+      ),
+    [matches],
   );
-  const avgNeutralWin = roundValue(
-    averageBy(matches, (match) => match.stats.neutral_win_rate),
+  const avgNeutralWin = useMemo(
+    () =>
+      roundValue(averageBy(matches, (match) => match.stats.neutral_win_rate)),
+    [matches],
   );
-  const totalTechToward = matches.reduce(
-    (total, match) => total + match.stats.tech_towards_count,
-    0,
+  const totalTechToward = useMemo(
+    () =>
+      matches.reduce((total, match) => total + match.stats.tech_towards_count, 0),
+    [matches],
   );
-  const totalTechAway = matches.reduce(
-    (total, match) => total + match.stats.tech_away_count,
-    0,
+  const totalTechAway = useMemo(
+    () =>
+      matches.reduce((total, match) => total + match.stats.tech_away_count, 0),
+    [matches],
   );
-  const totalTechInPlace = matches.reduce(
-    (total, match) => total + match.stats.tech_in_place_count,
-    0,
+  const totalTechInPlace = useMemo(
+    () =>
+      matches.reduce(
+        (total, match) => total + match.stats.tech_in_place_count,
+        0,
+      ),
+    [matches],
   );
-  const avgDamagePerOpening = roundValue(
-    averageBy(matches, (match) => match.stats.damage_per_opening),
+  const avgDamagePerOpening = useMemo(
+    () =>
+      roundValue(
+        averageBy(matches, (match) => match.stats.damage_per_opening),
+      ),
+    [matches],
   );
-  const avgApm = roundValue(
-    averageBy(matches, (match) => match.stats.actions_per_minute),
+  const avgApm = useMemo(
+    () =>
+      roundValue(averageBy(matches, (match) => match.stats.actions_per_minute)),
+    [matches],
   );
-  const avgStocksRemainingValue = averageDefinedNumbers(
-    matches.map((match) => match.trackedPlayerStocksLeft),
+  const avgStocksRemainingValue = useMemo(
+    () => averageDefinedNumbers(matches.map((match) => match.trackedPlayerStocksLeft)),
+    [matches],
   );
   const avgStocksRemaining =
     avgStocksRemainingValue === null
       ? null
       : roundValue(avgStocksRemainingValue);
-  const avgOpeningsPerKill = matches.some(
-    (match) => match.stats.openings_per_kill !== null,
-  )
-    ? roundValue(
-        averageBy(
-          matches.filter((match) => match.stats.openings_per_kill !== null),
-          (match) => match.stats.openings_per_kill ?? 0,
-        ),
-      )
-    : null;
+  const avgOpeningsPerKill = useMemo(() => {
+    if (!matches.some((match) => match.stats.openings_per_kill !== null)) {
+      return null;
+    }
+
+    return roundValue(
+      averageBy(
+        matches.filter((match) => match.stats.openings_per_kill !== null),
+        (match) => match.stats.openings_per_kill ?? 0,
+      ),
+    );
+  }, [matches]);
 
   return (
     <div className="space-y-6">
@@ -651,20 +755,20 @@ export default function TrendDashboard({
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
-              Trend Tracking
+              {heading}
             </p>
             <p className="mt-2 text-lg font-semibold text-white">
-              Review habits across a folder of replays by Slippi tag
+              {subtitle}
             </p>
             <p className="mt-1 text-sm text-slate-400">
-              Uploads analyzed: {batchAnalysis.replays.length}
+              {summaryLabel}: {batchAnalysis.replays.length}
               {batchAnalysis.failed_files.length > 0
                 ? ` • Failed: ${batchAnalysis.failed_files.length}`
                 : ""}
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             <label className="flex flex-col gap-2 text-sm text-slate-300">
               Player tag
               <select
@@ -712,6 +816,42 @@ export default function TrendDashboard({
                   </option>
                 ))}
               </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              Stage
+              <select
+                value={stageFilter}
+                onChange={(event) => setStageFilter(event.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+              >
+                <option value="all">All stages</option>
+                {availableStages.map((stage) => (
+                  <option key={stage} value={stage}>
+                    {formatStageName(stage)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              Date from
+              <input
+                type="date"
+                value={dateFrom}
+                onChange={(event) => setDateFrom(event.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+              />
+            </label>
+
+            <label className="flex flex-col gap-2 text-sm text-slate-300">
+              Date to
+              <input
+                type="date"
+                value={dateTo}
+                onChange={(event) => setDateTo(event.target.value)}
+                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+              />
             </label>
           </div>
         </div>
@@ -915,119 +1055,135 @@ export default function TrendDashboard({
           </div>
 
           <div className="space-y-3">
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
-              Matched Replays
-            </p>
-            <div className="space-y-3">
-              {matches.map((match) => (
-                <div
-                  key={match.replayId}
-                  className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4"
-                >
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div>
-                      <p className="text-sm font-semibold text-white">
-                        {match.filename}
-                      </p>
-                      <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                        <span className="inline-flex items-center gap-2">
-                          {formatCharacterName(match.character)} vs{" "}
-                          {formatCharacterName(match.opponentCharacter)}
-                        </span>
-                        {formatStageName(match.stage)
-                          ? ` • ${formatStageName(match.stage)}`
-                          : ""}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-500">
-                        {`Session ${(sessionByReplayId.get(match.replayId) ?? 0) + 1} • `}
-                        Tracking {getPlayerIdentityLabel(match.trackedPlayer)}
-                        {match.opponentTag
-                          ? ` • Opponent ${match.opponentTag}`
-                          : ""}
-                        {formatReplayTime(match.startedAt)
-                          ? ` • ${formatReplayTime(match.startedAt)}`
-                          : ""}
-                      </p>
-                    </div>
-                    <span
-                      className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${
-                        match.didWin
-                          ? "bg-green-500/15 text-green-300"
-                          : "bg-slate-700 text-slate-300"
-                      }`}
-                    >
-                      {match.didWin ? "Win" : "Loss"}
-                    </span>
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap gap-3">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
-                      <CharacterIcon
-                        character={match.character}
-                        className="h-7 w-7"
-                      />
-                      <span>{getPlayerIdentityLabel(match.trackedPlayer)}</span>
-                      <span className="text-slate-400">•</span>
-                      <span>
-                        {match.trackedPlayerStocksLeft ?? "N/A"} stocks
-                      </span>
-                    </div>
-                    <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
-                      <CharacterIcon
-                        character={match.opponentCharacter}
-                        className="h-7 w-7"
-                      />
-                      <span>
-                        {match.opponent
-                          ? getPlayerIdentityLabel(match.opponent)
-                          : match.opponentTag}
-                      </span>
-                      <span className="text-slate-400">•</span>
-                      <span>{match.opponentStocksLeft ?? "N/A"} stocks</span>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:grid-cols-5">
-                    <div className="rounded-lg bg-slate-800/70 p-3">
-                      <p className="text-slate-400">L-Cancel</p>
-                      <p className="mt-1 font-semibold text-white">
-                        {match.stats.l_cancel_rate}%
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-800/70 p-3">
-                      <p className="text-slate-400">Successful Tech</p>
-                      <p className="mt-1 font-semibold text-white">
-                        {getTechSuccessRate(
-                          match.stats.tech_attempts,
-                          match.stats.missed_techs,
-                        )}
-                        %
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-800/70 p-3">
-                      <p className="text-slate-400">Tech Direction</p>
-                      <p className="mt-1 font-semibold text-white">
-                        T {match.stats.tech_towards_count} • A{" "}
-                        {match.stats.tech_away_count} • IP{" "}
-                        {match.stats.tech_in_place_count}
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-800/70 p-3">
-                      <p className="text-slate-400">Neutral Win</p>
-                      <p className="mt-1 font-semibold text-white">
-                        {match.stats.neutral_win_rate}%
-                      </p>
-                    </div>
-                    <div className="rounded-lg bg-slate-800/70 p-3">
-                      <p className="text-slate-400">Damage/Open</p>
-                      <p className="mt-1 font-semibold text-white">
-                        {match.stats.damage_per_opening}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
+                Matched Replays
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsMatchedReplaysOpen((current) => !current)}
+                className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/80"
+              >
+                {isMatchedReplaysOpen ? "Hide replays" : "Show replays"}
+              </button>
             </div>
+            {isMatchedReplaysOpen ? (
+              <div className="space-y-3">
+                {matches.map((match) => (
+                  <div
+                    key={match.replayId}
+                    className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4"
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          {match.filename}
+                        </p>
+                        <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                          <span className="inline-flex items-center gap-2">
+                            {formatCharacterName(match.character)} vs{" "}
+                            {formatCharacterName(match.opponentCharacter)}
+                          </span>
+                          {formatStageName(match.stage)
+                            ? ` • ${formatStageName(match.stage)}`
+                            : ""}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {`Session ${(sessionByReplayId.get(match.replayId) ?? 0) + 1} • `}
+                          Tracking {getPlayerIdentityLabel(match.trackedPlayer)}
+                          {match.opponentTag
+                            ? ` • Opponent ${match.opponentTag}`
+                            : ""}
+                          {formatReplayTime(match.startedAt)
+                            ? ` • ${formatReplayTime(match.startedAt)}`
+                            : ""}
+                        </p>
+                      </div>
+                      <span
+                        className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${
+                          match.didWin
+                            ? "bg-green-500/15 text-green-300"
+                            : "bg-slate-700 text-slate-300"
+                        }`}
+                      >
+                        {match.didWin ? "Win" : "Loss"}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
+                        <CharacterIcon
+                          character={match.character}
+                          className="h-7 w-7"
+                        />
+                        <span>{getPlayerIdentityLabel(match.trackedPlayer)}</span>
+                        <span className="text-slate-400">•</span>
+                        <span>
+                          {match.trackedPlayerStocksLeft ?? "N/A"} stocks
+                        </span>
+                      </div>
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
+                        <CharacterIcon
+                          character={match.opponentCharacter}
+                          className="h-7 w-7"
+                        />
+                        <span>
+                          {match.opponent
+                            ? getPlayerIdentityLabel(match.opponent)
+                            : match.opponentTag}
+                        </span>
+                        <span className="text-slate-400">•</span>
+                        <span>{match.opponentStocksLeft ?? "N/A"} stocks</span>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:grid-cols-5">
+                      <div className="rounded-lg bg-slate-800/70 p-3">
+                        <p className="text-slate-400">L-Cancel</p>
+                        <p className="mt-1 font-semibold text-white">
+                          {match.stats.l_cancel_rate}%
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800/70 p-3">
+                        <p className="text-slate-400">Successful Tech</p>
+                        <p className="mt-1 font-semibold text-white">
+                          {getTechSuccessRate(
+                            match.stats.tech_attempts,
+                            match.stats.missed_techs,
+                          )}
+                          %
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800/70 p-3">
+                        <p className="text-slate-400">Tech Direction</p>
+                        <p className="mt-1 font-semibold text-white">
+                          T {match.stats.tech_towards_count} • A{" "}
+                          {match.stats.tech_away_count} • IP{" "}
+                          {match.stats.tech_in_place_count}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800/70 p-3">
+                        <p className="text-slate-400">Neutral Win</p>
+                        <p className="mt-1 font-semibold text-white">
+                          {match.stats.neutral_win_rate}%
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-slate-800/70 p-3">
+                        <p className="text-slate-400">Damage/Open</p>
+                        <p className="mt-1 font-semibold text-white">
+                          {match.stats.damage_per_opening}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4 text-sm text-slate-300">
+                Replay-by-replay breakdown hidden to keep the page fast. Open it
+                when you want the full list.
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1048,4 +1204,6 @@ export default function TrendDashboard({
       )}
     </div>
   );
-}
+});
+
+export default TrendDashboard;

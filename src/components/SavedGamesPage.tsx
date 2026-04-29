@@ -1,9 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { User } from "firebase/auth";
 
 import CharacterIcon from "./CharacterIcon";
+import TrendDashboard from "./TrendDashboard";
 import type {
   AnalysisResponse,
+  BatchAnalysisResponse,
   PerPlayerStats,
   PersistedAnalysisResponse,
   SavedGameRecord,
@@ -176,6 +178,7 @@ export default function SavedGamesPage({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [selectedTrendTagOverride, setSelectedTrendTagOverride] = useState("");
 
   useEffect(() => {
     if (!currentUser) {
@@ -218,6 +221,36 @@ export default function SavedGamesPage({
     };
   }, [currentUser, refreshToken]);
 
+  const savedGamesBatchAnalysis = useMemo<BatchAnalysisResponse>(() => {
+    const availableTags = Array.from(
+      new Set(
+        savedGames.flatMap((game) =>
+          (game.analysis.metadata?.players ?? [])
+            .filter((player) => !player.is_cpu)
+            .map((player) => player.tag?.trim())
+            .filter((tag): tag is string => Boolean(tag)),
+        ),
+      ),
+    ).sort((left, right) =>
+      left.localeCompare(right, undefined, { sensitivity: "base" }),
+    );
+
+    return {
+      replays: savedGames.map((game) => ({
+        filename: game.filename,
+        ...expandPersistedAnalysis(game.analysis),
+      })),
+      available_tags: availableTags,
+      failed_files: [],
+    };
+  }, [savedGames]);
+
+  const selectedTrendTag =
+    selectedTrendTagOverride &&
+    savedGamesBatchAnalysis.available_tags.includes(selectedTrendTagOverride)
+      ? selectedTrendTagOverride
+      : savedGamesBatchAnalysis.available_tags[0] ?? "";
+
   const selectedGame =
     savedGames.find((game) => game.id === selectedGameId) ?? savedGames[0] ?? null;
   const selectedAnalysis = selectedGame
@@ -259,6 +292,23 @@ export default function SavedGamesPage({
         </div>
       ) : (
         <div className="grid gap-4 lg:gap-8">
+          {savedGamesBatchAnalysis.available_tags.length > 0 ? (
+            <TrendDashboard
+              batchAnalysis={savedGamesBatchAnalysis}
+              selectedTag={selectedTrendTag}
+              onSelectTag={setSelectedTrendTagOverride}
+              heading="Saved Game Trends"
+              subtitle="Filter your saved replay history to review habits across matching games"
+              summaryLabel="Saved replays"
+              defaultMatchedReplaysOpen={false}
+            />
+          ) : (
+            <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
+              Saved replays are available, but none of them contain a usable
+              player tag for aggregate trend filtering yet.
+            </div>
+          )}
+
           <div className="lg:hidden">
             <button
               type="button"

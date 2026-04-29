@@ -4,6 +4,7 @@ Handles .slp replay file uploads and provides analysis.
 """
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from uuid import uuid4
@@ -11,11 +12,21 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 try:
-    from .services.parser import load_replay, extract_metadata, ReplayParseError
+    from .services.parser import (
+        load_replay,
+        extract_metadata,
+        get_frame_count,
+        ReplayParseError,
+    )
     from .services.stats import extract_stats
     from .services.feedback import generate_feedback, format_feedback_response
 except ImportError:
-    from services.parser import load_replay, extract_metadata, ReplayParseError
+    from services.parser import (
+        load_replay,
+        extract_metadata,
+        get_frame_count,
+        ReplayParseError,
+    )
     from services.stats import extract_stats
     from services.feedback import generate_feedback, format_feedback_response
 
@@ -88,9 +99,10 @@ async def analyze_replay_batch(files: list[UploadFile] = File(...)):
     failed_files = []
     available_tags = set()
 
-    for file in files:
+    for index, file in enumerate(files):
         if not file.filename:
             failed_files.append({
+                "index": index,
                 "filename": "unknown-file",
                 "error": "Missing filename in uploaded form data.",
             })
@@ -217,6 +229,67 @@ async def analyze_replay_batch_start(files: list[UploadFile] = File(...)):
     return {"job_id": job_id}
 
 
+@app.post("/replay-ids")
+async def get_replay_ids(files: list[UploadFile] = File(...)):
+    """Compute replay document ids without running the full analysis pipeline."""
+    if not files:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload at least one .slp replay file."
+        )
+
+    replay_ids = []
+    failed_files = []
+
+    for file in files:
+        if not file.filename:
+            failed_files.append({
+                "filename": "unknown-file",
+                "error": "Missing filename in uploaded form data.",
+            })
+            continue
+
+        safe_filename = Path(file.filename).name
+
+        try:
+            content = await file.read()
+            temp_file_path = _persist_uploaded_content(safe_filename, content)
+
+            try:
+                replay_ids.append(
+                    {
+                        "index": index,
+                        "filename": safe_filename,
+                        "replay_id": _build_replay_document_id(
+                            _load_replay_identity(temp_file_path),
+                        ),
+                    }
+                )
+            finally:
+                _cleanup_temp_file(temp_file_path)
+        except HTTPException as exc:
+            failed_files.append(
+                {
+                    "index": index,
+                    "filename": safe_filename,
+                    "error": str(exc.detail),
+                }
+            )
+        except Exception as exc:
+            failed_files.append(
+                {
+                    "index": index,
+                    "filename": safe_filename,
+                    "error": f"Error fingerprinting replay: {str(exc)}",
+                }
+            )
+
+    return {
+        "replays": replay_ids,
+        "failed_files": failed_files,
+    }
+
+
 @app.get("/analysis-jobs/{job_id}")
 def get_analysis_job(job_id: str):
     """Return progress and, when complete, the result for an analysis job."""
@@ -291,6 +364,71 @@ def _analyze_saved_replay(safe_filename: str, temp_file_path: Path):
     response["filename"] = safe_filename
 
     return response
+
+
+def _load_replay_identity(temp_file_path: Path) -> dict:
+    try:
+        game = load_replay(str(temp_file_path))
+    except ReplayParseError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Failed to parse replay file: {e}"
+        ) from e
+
+    metadata = extract_metadata(game)
+    total_frames = get_frame_count(game)
+
+    return {
+        "metadata": metadata,
+        "total_frames": total_frames,
+        "match_duration_seconds": round(total_frames / 60, 2),
+    }
+
+
+def _build_replay_document_id(replay_identity: dict) -> str:
+    metadata = replay_identity.get("metadata", {})
+    players = metadata.get("players", [])
+
+    fingerprint = {
+        "startedAt": metadata.get("started_at", "") or "",
+        "stage": metadata.get("stage", "") or "",
+        "numPlayers": metadata.get("num_players", 0) or 0,
+        "winnerName": metadata.get("winner_name", "") or "",
+        "winnerPlayerIndex": metadata.get("winner_player_index", None),
+        "totalFrames": replay_identity.get("total_frames", 0) or 0,
+        "matchDurationSeconds": replay_identity.get("match_duration_seconds", 0) or 0,
+        "players": [
+            {
+                "playerIndex": player.get("player_index"),
+                "character": player.get("character", ""),
+                "tag": player.get("tag", "") or "",
+                "connectCode": player.get("connect_code", "") or "",
+                "netplayName": player.get("netplay_name", "") or "",
+                "nameTag": player.get("name_tag", "") or "",
+                "stocksLeft": player.get("stocks_left", None),
+                "didWin": player.get("did_win"),
+            }
+            for player in players
+        ],
+    }
+
+    fingerprint_json = json.dumps(
+        fingerprint,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+    return f"replay_{_hash_fingerprint(fingerprint_json)}"
+
+
+def _hash_fingerprint(input_text: str) -> str:
+    hash_value = 2166136261
+
+    for char in input_text:
+        hash_value ^= ord(char)
+        hash_value = (hash_value * 16777619) & 0xFFFFFFFF
+
+    return format(hash_value, "08x")
 
 
 def _cleanup_temp_file(temp_file_path: Path) -> None:

@@ -3,6 +3,7 @@ import type { User } from "firebase/auth";
 
 import { getStageLayout } from "../lib/stageLayout";
 import {
+  loadSavedReplayIds,
   saveBatchGameAnalyses,
   saveSingleGameAnalysis,
   type SaveGameResult,
@@ -40,6 +41,19 @@ type AnalysisJobResponse = {
   progress: number;
   result: unknown;
   error: string | null;
+};
+
+type ReplayIdentityResponse = {
+  replays: Array<{
+    index: number;
+    filename: string;
+    replay_id: string;
+  }>;
+  failed_files: Array<{
+    index: number;
+    filename: string;
+    error: string;
+  }>;
 };
 
 function postFormDataWithProgress(
@@ -235,6 +249,7 @@ export default function ReplayAnalyzer({
   const [activeTab, setActiveTab] = useState<AnalysisTab>("overview");
   const [isDemoReplay, setIsDemoReplay] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [skipDuplicates, setSkipDuplicates] = useState(true);
   const stageDisplayName = getStageLayout(
     analysis?.metadata?.stage,
   ).displayName;
@@ -335,6 +350,33 @@ export default function ReplayAnalyzer({
     };
   };
 
+  const identifyReplayDocuments = async (
+    files: File[],
+  ): Promise<ReplayIdentityResponse> => {
+    const formData = new FormData();
+    files.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    const response = await fetch(`${API_BASE_URL}/replay-ids`, {
+      method: "POST",
+      body: formData,
+    });
+
+    const payload = (await response.json()) as unknown;
+
+    if (!response.ok) {
+      const errorPayload = payload as { detail?: { message?: string } | string };
+      const detail =
+        typeof errorPayload.detail === "string"
+          ? errorPayload.detail
+          : errorPayload.detail?.message || "Failed to identify uploaded replays";
+      throw new Error(detail);
+    }
+
+    return payload as ReplayIdentityResponse;
+  };
+
   const loadDemoReplay = () => {
     setSelectedFiles([]);
     setUploadSource(null);
@@ -420,16 +462,70 @@ export default function ReplayAnalyzer({
     setSaveMessage(null);
 
     try {
-      const formData = new FormData();
       const isBatchUpload =
         uploadSource === "folder" || selectedFiles.length > 1;
-      const uploadedFileNames = selectedFiles.map((file) => file.name);
+      let filesToAnalyze = selectedFiles;
+      const skippedDuplicateNames: string[] = [];
+      const precheckWarnings: string[] = [];
+
+      if (skipDuplicates && currentUser) {
+        try {
+          const savedReplayIds = await loadSavedReplayIds(currentUser.uid);
+
+          if (savedReplayIds.size > 0) {
+            const replayIdentityData = await identifyReplayDocuments(selectedFiles);
+            const duplicateIndexes = new Set<number>();
+
+            replayIdentityData.replays.forEach((replay) => {
+              if (savedReplayIds.has(replay.replay_id)) {
+                duplicateIndexes.add(replay.index);
+                skippedDuplicateNames.push(replay.filename);
+              }
+            });
+
+            replayIdentityData.failed_files.forEach((file) => {
+              precheckWarnings.push(`${file.filename}: ${file.error}`);
+            });
+
+            filesToAnalyze = selectedFiles.filter((_, index) => {
+              return !duplicateIndexes.has(index);
+            });
+          }
+        } catch (precheckError) {
+          precheckWarnings.push(
+            precheckError instanceof Error
+              ? precheckError.message
+              : "Duplicate check was unavailable.",
+          );
+        }
+      }
+
+      if (filesToAnalyze.length === 0) {
+        const duplicateMessage =
+          skippedDuplicateNames.length > 0
+            ? `Skipped ${skippedDuplicateNames.length} duplicate replay${skippedDuplicateNames.length === 1 ? "" : "s"} already in your saved games.`
+            : "No new replays to analyze.";
+        const warningMessage =
+          precheckWarnings.length > 0
+            ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
+            : "";
+
+        setSaveMessage(`${duplicateMessage}${warningMessage}`);
+        setSelectedFiles([]);
+        setUploadSource(null);
+        setSelectionLabel("");
+        clearPickerValues();
+        return;
+      }
+
+      const uploadedFileNames = filesToAnalyze.map((file) => file.name);
+      const formData = new FormData();
       if (isBatchUpload) {
-        selectedFiles.forEach((file) => {
+        filesToAnalyze.forEach((file) => {
           formData.append("files", file);
         });
       } else {
-        formData.append("file", selectedFiles[0]);
+        formData.append("file", filesToAnalyze[0]);
       }
 
       const response = await postFormDataWithProgress(
@@ -467,6 +563,19 @@ export default function ReplayAnalyzer({
         setBatchAnalysis(data);
         setSelectedTag(getDefaultBatchTag(data));
         await persistCompletedAnalysis(isBatchUpload, null, data, uploadedFileNames);
+        if (skippedDuplicateNames.length > 0) {
+          setSaveMessage((currentMessage) => {
+            const duplicateMessage = `Skipped ${skippedDuplicateNames.length} duplicate replay${skippedDuplicateNames.length === 1 ? "" : "s"} before analysis.`;
+            const warningMessage =
+              precheckWarnings.length > 0
+                ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
+                : "";
+
+            return [currentMessage, `${duplicateMessage}${warningMessage}`]
+              .filter(Boolean)
+              .join(" ");
+          });
+        }
       } else {
         const rawData = result as AnalysisResponse;
         const data = normalizeSingleAnalysis(rawData);
@@ -478,6 +587,26 @@ export default function ReplayAnalyzer({
           null,
           uploadedFileNames,
         );
+        if (skippedDuplicateNames.length > 0) {
+          setSaveMessage((currentMessage) => {
+            const duplicateMessage = `Skipped ${skippedDuplicateNames[0]} because it is already in your saved games.`;
+            const warningMessage =
+              precheckWarnings.length > 0
+                ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
+                : "";
+
+            return [currentMessage, `${duplicateMessage}${warningMessage}`]
+              .filter(Boolean)
+              .join(" ");
+          });
+        }
+      }
+
+      if (precheckWarnings.length > 0 && skippedDuplicateNames.length === 0) {
+        setSaveMessage((currentMessage) => {
+          const warningMessage = `Duplicate precheck could not verify ${precheckWarnings.length} item${precheckWarnings.length === 1 ? "" : "s"}, so analysis continued normally.`;
+          return [currentMessage, warningMessage].filter(Boolean).join(" ");
+        });
       }
 
       setSelectedFiles([]);
@@ -623,6 +752,29 @@ export default function ReplayAnalyzer({
                       selected Slippi tag.
                     </p>
                   )}
+                  <label className="flex items-center justify-between gap-3 rounded-xl border border-slate-600/80 bg-slate-900/35 px-3 py-2.5">
+                    <span className="min-w-0 pr-2">
+                      <span className="block text-sm font-semibold text-white">
+                        Skip Duplicates
+                      </span>
+                      <span className="mt-0.5 block text-[11px] leading-5 text-slate-400">
+                        {currentUser
+                          ? "Skip replays already saved to your history before analysis starts."
+                          : "Sign in to compare uploads against your saved history."}
+                      </span>
+                    </span>
+                    <span className="relative shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={skipDuplicates}
+                        onChange={(event) => setSkipDuplicates(event.target.checked)}
+                        disabled={loading || !currentUser}
+                        className="peer sr-only"
+                      />
+                      <span className="block h-5 w-9 rounded-full bg-slate-700 transition peer-checked:bg-cyan-500/80 peer-disabled:opacity-50" />
+                      <span className="pointer-events-none absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition peer-checked:translate-x-4" />
+                    </span>
+                  </label>
                 </div>
 
                 {error && (

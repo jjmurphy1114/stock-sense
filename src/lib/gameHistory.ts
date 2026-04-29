@@ -109,6 +109,11 @@ export type SaveGameResult =
       filename: string;
     };
 
+export type ReplayIdentityResult = {
+  filename: string;
+  replayId: string;
+};
+
 async function saveGameRecord(
   uid: string,
   filename: string,
@@ -208,4 +213,11 @@ export async function loadSavedGames(uid: string): Promise<SavedGameRecord[]> {
       analysis: data.analysis,
     };
   });
+}
+
+export async function loadSavedReplayIds(uid: string): Promise<Set<string>> {
+  const firestore = assertFirestoreConfigured();
+  const snapshot = await getDocs(collection(firestore, "users", uid, "games"));
+
+  return new Set(snapshot.docs.map((doc) => doc.id));
 }

@@ -3,6 +3,13 @@ import type { User } from "firebase/auth";
 
 import CharacterIcon from "./CharacterIcon";
 import TrendDashboard from "./TrendDashboard";
+import { updateSavedGameAssignments } from "../lib/gameHistory";
+import {
+  buildTrackedPlayerAssignment,
+  getAssignablePlayers,
+  getPlayerAssignmentDetail,
+  getPlayerAssignmentLabel,
+} from "../lib/replayAssignments";
 import type {
   AnalysisResponse,
   BatchAnalysisResponse,
@@ -178,7 +185,13 @@ export default function SavedGamesPage({
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [selectedTrendTagOverride, setSelectedTrendTagOverride] = useState("");
+  const [isAssignmentEditorOpen, setIsAssignmentEditorOpen] = useState(false);
+  const [assignmentValues, setAssignmentValues] = useState<Record<string, string>>(
+    {},
+  );
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!currentUser) {
@@ -238,18 +251,13 @@ export default function SavedGamesPage({
     return {
       replays: savedGames.map((game) => ({
         filename: game.filename,
+        trackedPlayerAssignment: game.trackedPlayerAssignment,
         ...expandPersistedAnalysis(game.analysis),
       })),
       available_tags: availableTags,
       failed_files: [],
     };
   }, [savedGames]);
-
-  const selectedTrendTag =
-    selectedTrendTagOverride &&
-    savedGamesBatchAnalysis.available_tags.includes(selectedTrendTagOverride)
-      ? selectedTrendTagOverride
-      : savedGamesBatchAnalysis.available_tags[0] ?? "";
 
   const selectedGame =
     savedGames.find((game) => game.id === selectedGameId) ?? savedGames[0] ?? null;
@@ -259,6 +267,85 @@ export default function SavedGamesPage({
   const playerFeedbackGroups = selectedAnalysis
     ? getPlayerFeedbackGroups(selectedAnalysis)
     : [];
+  const assignedGameCount = savedGames.filter(
+    (game) => game.trackedPlayerAssignment != null,
+  ).length;
+
+  const openAssignmentEditor = () => {
+    setAssignmentValues(
+      Object.fromEntries(
+        savedGames.map((game) => [
+          game.id,
+          game.trackedPlayerAssignment
+            ? String(game.trackedPlayerAssignment.playerIndex)
+            : "",
+        ]),
+      ),
+    );
+    setAssignmentError(null);
+    setAssignmentMessage(null);
+    setIsAssignmentEditorOpen(true);
+  };
+
+  const handleSaveAssignmentChanges = async () => {
+    if (!currentUser) {
+      return;
+    }
+
+    const missingGame = savedGames.find((game) => !assignmentValues[game.id]);
+    if (missingGame) {
+      setAssignmentError(`Choose your player for ${missingGame.filename}.`);
+      return;
+    }
+
+    setAssignmentSaving(true);
+    setAssignmentError(null);
+
+    try {
+      const updates = savedGames.map((game) => {
+        const selectedPlayerIndex = Number(assignmentValues[game.id]);
+        const player = getAssignablePlayers(game.analysis).find(
+          (entry) => entry.player_index === selectedPlayerIndex,
+        );
+
+        if (!player) {
+          throw new Error(`Could not resolve the selected player for ${game.filename}.`);
+        }
+
+        return {
+          replayId: game.id,
+          trackedPlayerAssignment: buildTrackedPlayerAssignment(
+            player,
+            game.trackedPlayerAssignment?.playerIndex === selectedPlayerIndex
+              ? game.trackedPlayerAssignment.source
+              : "manual",
+          ),
+        };
+      });
+
+      await updateSavedGameAssignments(currentUser.uid, updates);
+
+      setSavedGames((currentGames) =>
+        currentGames.map((game) => {
+          const update = updates.find((entry) => entry.replayId === game.id);
+          return update
+            ? {
+                ...game,
+                trackedPlayerAssignment: update.trackedPlayerAssignment,
+              }
+            : game;
+        }),
+      );
+      setAssignmentMessage("Saved replay assignments.");
+      setIsAssignmentEditorOpen(false);
+    } catch (error) {
+      setAssignmentError(
+        error instanceof Error ? error.message : "Failed to save assignments.",
+      );
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
 
   return (
     <div className="grid gap-8">
@@ -292,22 +379,46 @@ export default function SavedGamesPage({
         </div>
       ) : (
         <div className="grid gap-4 lg:gap-8">
-          {savedGamesBatchAnalysis.available_tags.length > 0 ? (
+          {assignedGameCount > 0 ? (
             <TrendDashboard
               batchAnalysis={savedGamesBatchAnalysis}
-              selectedTag={selectedTrendTag}
-              onSelectTag={setSelectedTrendTagOverride}
               heading="Saved Game Trends"
-              subtitle="Filter your saved replay history to review habits across matching games"
+              subtitle="Review your saved replay history using the player assignment stored with each game"
               summaryLabel="Saved replays"
               defaultMatchedReplaysOpen={false}
             />
           ) : (
             <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
-              Saved replays are available, but none of them contain a usable
-              player tag for aggregate trend filtering yet.
+              Assign yourself to at least one saved replay to unlock aggregate
+              trend filtering across online and console games.
             </div>
           )}
+
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-600 bg-slate-900/35 p-4">
+            <div>
+              <p className="text-sm font-semibold text-white">
+                Replay ownership
+              </p>
+              <p className="mt-1 text-sm text-slate-400">
+                {assignedGameCount} of {savedGames.length} saved replay
+                {savedGames.length === 1 ? "" : "s"} have a stored player
+                assignment.
+              </p>
+              {assignmentMessage ? (
+                <p className="mt-2 text-sm text-emerald-300">
+                  {assignmentMessage}
+                </p>
+              ) : null}
+            </div>
+
+            <button
+              type="button"
+              onClick={openAssignmentEditor}
+              className="rounded-xl border border-purple-400/40 bg-purple-500/10 px-4 py-2.5 text-sm font-semibold text-purple-100 transition hover:bg-purple-500/20"
+            >
+              Change Assignments
+            </button>
+          </div>
 
           <div className="lg:hidden">
             <button
@@ -368,6 +479,11 @@ export default function SavedGamesPage({
                     {game.createdAt
                       ? new Date(game.createdAt).toLocaleString()
                       : "Saved just now"}
+                  </p>
+                  <p className="mt-2 text-xs text-cyan-300">
+                    {game.trackedPlayerAssignment
+                      ? `You: ${game.trackedPlayerAssignment.playerLabel}`
+                      : "Player assignment needed"}
                   </p>
                   <p className="mt-3 text-sm text-slate-300">{game.summary}</p>
                 </button>
@@ -483,10 +599,18 @@ export default function SavedGamesPage({
                           <span className="font-semibold text-white">
                             P{player.player_index + 1}
                           </span>
-                          <span>{player.tag || "Unknown tag"}</span>
+                          <span>
+                            {player.tag || `Player ${player.player_index + 1}`}
+                          </span>
                           <span className="text-slate-400">
                             {formatCharacterName(player.character)}
                           </span>
+                          {selectedGame.trackedPlayerAssignment?.playerIndex ===
+                          player.player_index ? (
+                            <span className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-2 py-0.5 text-xs font-semibold text-cyan-200">
+                              You
+                            </span>
+                          ) : null}
                           {player.did_win ? (
                             <span className="text-xs font-semibold text-green-400">
                               Winner
@@ -584,6 +708,136 @@ export default function SavedGamesPage({
         </div>
         </div>
       )}
+
+      {isAssignmentEditorOpen ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
+          <div className="max-h-[85vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-slate-600 bg-slate-900 p-6 shadow-2xl shadow-black/50">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                  Replay Ownership
+                </p>
+                <h3 className="mt-2 text-2xl font-bold text-white">
+                  Update saved replay assignments
+                </h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  Pick the player you were for each replay. This works for both
+                  online tags and console player numbers.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsAssignmentEditorOpen(false)}
+                className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {savedGames.map((game) => {
+                const players = getAssignablePlayers(game.analysis);
+
+                return (
+                  <div
+                    key={`assignment-${game.id}`}
+                    className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4"
+                  >
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          {game.filename}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          Current assignment:{" "}
+                          {game.trackedPlayerAssignment?.playerLabel ?? "Not set"}
+                        </p>
+                      </div>
+
+                      <label className="flex w-full flex-col gap-2 text-sm text-slate-300 lg:w-80">
+                        I was this player
+                        <select
+                          value={assignmentValues[game.id] ?? ""}
+                          onChange={(event) => {
+                            setAssignmentError(null);
+                            setAssignmentValues((current) => ({
+                              ...current,
+                              [game.id]: event.target.value,
+                            }));
+                          }}
+                          className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-white outline-none transition focus:border-purple-400"
+                        >
+                          <option value="">Select player</option>
+                          {players.map((player) => (
+                            <option
+                              key={`${game.id}-${player.player_index}`}
+                              value={player.player_index}
+                            >
+                              {getPlayerAssignmentLabel(player)} • {formatCharacterName(player.character)}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {players.map((player) => (
+                        <div
+                          key={`${game.id}-player-${player.player_index}`}
+                          className="rounded-xl border border-slate-700 bg-slate-900/50 p-3 text-sm text-slate-200"
+                        >
+                          <div className="flex items-center gap-3">
+                            <CharacterIcon
+                              character={player.character}
+                              className="h-8 w-8"
+                            />
+                            <div>
+                              <p className="font-semibold text-white">
+                                {getPlayerAssignmentLabel(player)}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                {formatCharacterName(player.character)}
+                                {getPlayerAssignmentDetail(player)
+                                  ? ` • ${getPlayerAssignmentDetail(player)}`
+                                  : ""}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {assignmentError ? (
+              <p className="mt-4 text-sm text-red-300">{assignmentError}</p>
+            ) : null}
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsAssignmentEditorOpen(false)}
+                className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSaveAssignmentChanges();
+                }}
+                disabled={assignmentSaving}
+                className="rounded-xl border border-purple-400/50 bg-purple-500/15 px-4 py-2.5 text-sm font-semibold text-purple-100 transition hover:border-purple-300 hover:bg-purple-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {assignmentSaving ? "Saving..." : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

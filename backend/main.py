@@ -192,7 +192,7 @@ async def analyze_replay_batch_start(files: list[UploadFile] = File(...)):
 
     uploaded_files: list[tuple[str, Path]] = []
 
-    for file in files:
+    for index, file in enumerate(files):
         if not file.filename:
             continue
 
@@ -241,7 +241,7 @@ async def get_replay_ids(files: list[UploadFile] = File(...)):
     replay_ids = []
     failed_files = []
 
-    for file in files:
+    for index, file in enumerate(files):
         if not file.filename:
             failed_files.append({
                 "filename": "unknown-file",
@@ -256,13 +256,13 @@ async def get_replay_ids(files: list[UploadFile] = File(...)):
             temp_file_path = _persist_uploaded_content(safe_filename, content)
 
             try:
+                replay_identity = _load_replay_identity(temp_file_path)
                 replay_ids.append(
                     {
                         "index": index,
                         "filename": safe_filename,
-                        "replay_id": _build_replay_document_id(
-                            _load_replay_identity(temp_file_path),
-                        ),
+                        "replay_id": _build_replay_document_id(replay_identity),
+                        "metadata": replay_identity.get("metadata"),
                     }
                 )
             finally:

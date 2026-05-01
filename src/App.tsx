@@ -225,6 +225,7 @@ function App() {
               element={
                 <ReplayAnalyzer
                   currentUser={currentUser}
+                  profile={profile}
                   onSavedGamesChanged={async () => {
                     setSavedGamesRefreshToken((value) => value + 1);
                   }}

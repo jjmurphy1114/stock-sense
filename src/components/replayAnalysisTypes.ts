@@ -78,6 +78,14 @@ export interface AnalysisResponse {
   };
 }
 
+export interface TrackedPlayerAssignment {
+  playerIndex: number;
+  playerTag: string | null;
+  playerLabel: string;
+  assignmentType: "slippi_tag" | "player_number";
+  source: "profile_slippi_tag" | "manual";
+}
+
 export interface PersistedAnalysisResponse
   extends Omit<AnalysisResponse, "stats"> {
   stats: Omit<AnalysisResponse["stats"], "hit_locations">;
@@ -85,6 +93,7 @@ export interface PersistedAnalysisResponse
 
 export interface ReplayAnalysisWithFile extends AnalysisResponse {
   filename: string;
+  trackedPlayerAssignment?: TrackedPlayerAssignment | null;
 }
 
 export interface BatchFailure {
@@ -107,6 +116,7 @@ export interface SavedGameRecord {
   stage: string | null;
   startedAt: string | null;
   playerTags: string[];
+  trackedPlayerAssignment: TrackedPlayerAssignment | null;
   analysis: PersistedAnalysisResponse;
 }
 

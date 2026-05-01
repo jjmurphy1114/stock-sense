@@ -8,6 +8,7 @@ import {
   serverTimestamp,
   setDoc,
   Timestamp,
+  writeBatch,
 } from "firebase/firestore";
 
 import { db } from "./firebase";
@@ -16,6 +17,7 @@ import type {
   PersistedAnalysisResponse,
   ReplayAnalysisWithFile,
   SavedGameRecord,
+  TrackedPlayerAssignment,
 } from "../components/replayAnalysisTypes";
 
 export class DuplicateReplayError extends Error {
@@ -119,6 +121,7 @@ async function saveGameRecord(
   filename: string,
   uploadMode: "single" | "folder",
   analysis: AnalysisResponse,
+  trackedPlayerAssignment: TrackedPlayerAssignment,
 ): Promise<SaveGameResult> {
   const firestore = assertFirestoreConfigured();
   const trimmedAnalysis = trimAnalysisForStorage(analysis);
@@ -145,6 +148,7 @@ async function saveGameRecord(
     stage: analysis.metadata?.stage ?? null,
     startedAt: analysis.metadata?.started_at ?? null,
     playerTags,
+    trackedPlayerAssignment,
     analysis: trimmedAnalysis,
   });
 
@@ -159,8 +163,15 @@ export async function saveSingleGameAnalysis(
   uid: string,
   filename: string,
   analysis: AnalysisResponse,
+  trackedPlayerAssignment: TrackedPlayerAssignment,
 ) {
-  return saveGameRecord(uid, filename, "single", analysis);
+  return saveGameRecord(
+    uid,
+    filename,
+    "single",
+    analysis,
+    trackedPlayerAssignment,
+  );
 }
 
 export async function saveBatchGameAnalyses(
@@ -168,8 +179,49 @@ export async function saveBatchGameAnalyses(
   replays: ReplayAnalysisWithFile[],
 ) {
   return Promise.all(
-    replays.map((replay) => saveGameRecord(uid, replay.filename, "folder", replay)),
+    replays.map((replay) => {
+      if (!replay.trackedPlayerAssignment) {
+        throw new Error(`Missing tracked player assignment for ${replay.filename}`);
+      }
+
+      return saveGameRecord(
+        uid,
+        replay.filename,
+        "folder",
+        replay,
+        replay.trackedPlayerAssignment,
+      );
+    }),
   );
+}
+
+export async function updateSavedGameAssignments(
+  uid: string,
+  updates: Array<{
+    replayId: string;
+    trackedPlayerAssignment: TrackedPlayerAssignment;
+  }>,
+) {
+  if (updates.length === 0) {
+    return;
+  }
+
+  const firestore = assertFirestoreConfigured();
+  const batch = writeBatch(firestore);
+
+  updates.forEach(({ replayId, trackedPlayerAssignment }) => {
+    const gameDoc = doc(collection(firestore, "users", uid, "games"), replayId);
+    batch.set(
+      gameDoc,
+      {
+        trackedPlayerAssignment,
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true },
+    );
+  });
+
+  await batch.commit();
 }
 
 function serializeCreatedAt(value: Timestamp | null | undefined) {
@@ -198,6 +250,7 @@ export async function loadSavedGames(uid: string): Promise<SavedGameRecord[]> {
       stage?: string | null;
       startedAt?: string | null;
       playerTags?: string[];
+      trackedPlayerAssignment?: TrackedPlayerAssignment | null;
       analysis: PersistedAnalysisResponse;
     };
 
@@ -210,6 +263,7 @@ export async function loadSavedGames(uid: string): Promise<SavedGameRecord[]> {
       stage: data.stage ?? null,
       startedAt: data.startedAt ?? null,
       playerTags: data.playerTags ?? [],
+      trackedPlayerAssignment: data.trackedPlayerAssignment ?? null,
       analysis: data.analysis,
     };
   });

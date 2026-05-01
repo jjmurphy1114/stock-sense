@@ -136,8 +136,19 @@ function getPlayerIdentityLabel(player: AnalysisMetadataPlayer) {
 
 function getAutoTrackedPlayer(
   replay: ReplayAnalysisWithFile,
-  selectedTag: string,
+  selectedTag?: string,
 ) {
+  if (replay.trackedPlayerAssignment) {
+    return replay.metadata?.players.find(
+      (player) =>
+        player.player_index === replay.trackedPlayerAssignment?.playerIndex,
+    );
+  }
+
+  if (!selectedTag) {
+    return null;
+  }
+
   const normalizedSelectedTag = normalizeTag(selectedTag);
   return replay.metadata?.players.find(
     (entry) => normalizeTag(entry.tag) === normalizedSelectedTag,
@@ -146,7 +157,7 @@ function getAutoTrackedPlayer(
 
 function getResolvedTrackedPlayer(
   replay: ReplayAnalysisWithFile,
-  selectedTag: string,
+  selectedTag: string | undefined,
   overrideValue: ReplayOverrideValue | undefined,
 ) {
   if (overrideValue && overrideValue !== "auto") {
@@ -161,7 +172,7 @@ function getResolvedTrackedPlayer(
 
 function getTrendMatches(
   batchAnalysis: BatchAnalysisResponse,
-  selectedTag: string,
+  selectedTag: string | undefined,
   replayOverrides: Record<string, ReplayOverrideValue>,
   myCharacterFilter: string,
   opponentCharacterFilter: string,
@@ -215,7 +226,8 @@ function getTrendMatches(
       opponent,
       opponentStocksLeft: opponent?.stocks_left ?? null,
       opponentCharacter: opponent?.character ?? "Unknown",
-      opponentTag: opponent?.tag ?? `Player ${trackedPlayer.player_index + 1}`,
+      opponentTag:
+        opponent?.tag ?? `Player ${(opponent?.player_index ?? 0) + 1}`,
     };
 
     if (myCharacterFilter !== "all" && match.character !== myCharacterFilter) {
@@ -586,8 +598,8 @@ const TrendDashboard = memo(function TrendDashboard({
   defaultMatchedReplaysOpen = true,
 }: {
   batchAnalysis: BatchAnalysisResponse;
-  selectedTag: string;
-  onSelectTag: (tag: string) => void;
+  selectedTag?: string;
+  onSelectTag?: (tag: string) => void;
   heading?: string;
   summaryLabel?: string;
   subtitle?: string;
@@ -769,20 +781,31 @@ const TrendDashboard = memo(function TrendDashboard({
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
-              Player tag
-              <select
-                value={selectedTag}
-                onChange={(event) => onSelectTag(event.target.value)}
-                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
-              >
-                {batchAnalysis.available_tags.map((tag) => (
-                  <option key={tag} value={tag}>
-                    {tag}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {selectedTag && onSelectTag ? (
+              <label className="flex flex-col gap-2 text-sm text-slate-300">
+                Player tag
+                <select
+                  value={selectedTag}
+                  onChange={(event) => onSelectTag(event.target.value)}
+                  className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+                >
+                  {batchAnalysis.available_tags.map((tag) => (
+                    <option key={tag} value={tag}>
+                      {tag}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-300">
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                  Player assignment
+                </span>
+                <span className="text-sm text-white">
+                  Using saved replay ownership
+                </span>
+              </div>
+            )}
 
             <label className="flex flex-col gap-2 text-sm text-slate-300">
               My character

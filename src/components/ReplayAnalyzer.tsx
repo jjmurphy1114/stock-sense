@@ -3,18 +3,28 @@ import type { User } from "firebase/auth";
 
 import { getStageLayout } from "../lib/stageLayout";
 import {
+  buildReplayDocumentId,
   loadSavedReplayIds,
   saveBatchGameAnalyses,
   saveSingleGameAnalysis,
   type SaveGameResult,
 } from "../lib/gameHistory";
+import {
+  buildTrackedPlayerAssignment,
+  findAutoTrackedPlayer,
+  getPlayerAssignmentDetail,
+  getPlayerAssignmentLabel,
+} from "../lib/replayAssignments";
+import type { UserProfile } from "../lib/userProfile";
 import CharacterIcon from "./CharacterIcon";
 import { exampleReplayAnalysis } from "./exampleReplayAnalysis";
 import StageHitMap from "./StageHitMap";
 import TrendDashboard from "./TrendDashboard";
 import type {
   AnalysisResponse,
+  AnalysisMetadataPlayer,
   BatchAnalysisResponse,
+  TrackedPlayerAssignment,
 } from "./replayAnalysisTypes";
 import { formatCharacterName } from "./replayAnalysisTypes";
 
@@ -48,6 +58,7 @@ type ReplayIdentityResponse = {
     index: number;
     filename: string;
     replay_id: string;
+    metadata?: AnalysisResponse["metadata"];
   }>;
   failed_files: Array<{
     index: number;
@@ -222,13 +233,63 @@ function getDefaultBatchTag(data: BatchAnalysisResponse): string {
   return rankedTags[0]?.[0] ?? data.available_tags[0] ?? "";
 }
 
+function getCommonAssignablePlayerIndices(replays: PendingAssignmentReplay[]) {
+  if (replays.length === 0) {
+    return [];
+  }
+
+  const sharedIndices = new Set(
+    replays[0]?.players.map((player) => player.player_index) ?? [],
+  );
+
+  replays.slice(1).forEach((replay) => {
+    const replayIndices = new Set(
+      replay.players.map((player) => player.player_index),
+    );
+
+    Array.from(sharedIndices).forEach((playerIndex) => {
+      if (!replayIndices.has(playerIndex)) {
+        sharedIndices.delete(playerIndex);
+      }
+    });
+  });
+
+  return Array.from(sharedIndices).sort((left, right) => left - right);
+}
+
 type ReplayAnalyzerProps = {
   currentUser: User | null;
+  profile: UserProfile | null;
   onSavedGamesChanged?: () => Promise<void>;
+};
+
+type PendingAssignmentReplay = {
+  replayId: string;
+  filename: string;
+  players: AnalysisMetadataPlayer[];
+  suggestedAssignment: TrackedPlayerAssignment | null;
+};
+
+type PendingAssignmentState = {
+  replays: PendingAssignmentReplay[];
+  values: Record<string, string>;
+  applyToAllValue: string;
+  filesToAnalyze: File[];
+  uploadSource: "single" | "folder";
+  skippedDuplicateNames: string[];
+  precheckWarnings: string[];
+  saving: boolean;
+  error: string | null;
+};
+
+type TrackedAssignmentsLookup = {
+  byReplayId?: Record<string, TrackedPlayerAssignment>;
+  byFilename?: Record<string, TrackedPlayerAssignment>;
 };
 
 export default function ReplayAnalyzer({
   currentUser,
+  profile,
   onSavedGamesChanged,
 }: ReplayAnalyzerProps) {
   const singleFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -250,11 +311,16 @@ export default function ReplayAnalyzer({
   const [isDemoReplay, setIsDemoReplay] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [skipDuplicates, setSkipDuplicates] = useState(true);
+  const [pendingAssignmentState, setPendingAssignmentState] =
+    useState<PendingAssignmentState | null>(null);
   const stageDisplayName = getStageLayout(
     analysis?.metadata?.stage,
   ).displayName;
   const playerFeedbackGroups = analysis
     ? getPlayerFeedbackGroups(analysis)
+    : [];
+  const commonAssignablePlayerIndices = pendingAssignmentState
+    ? getCommonAssignablePlayerIndices(pendingAssignmentState.replays)
     : [];
 
   const directoryPickerProps = {
@@ -392,50 +458,6 @@ export default function ReplayAnalyzer({
     clearPickerValues();
   };
 
-  const persistCompletedAnalysis = async (
-    isBatchUpload: boolean,
-    singleAnalysis: AnalysisResponse | null,
-    batchData: BatchAnalysisResponse | null,
-    uploadedFileNames: string[],
-  ) => {
-    if (!currentUser) {
-      setSaveMessage("Analysis ready. Sign in with Google to save uploads.");
-      return;
-    }
-
-    if (isBatchUpload && batchData) {
-      const results = await saveBatchGameAnalyses(currentUser.uid, batchData.replays);
-      await onSavedGamesChanged?.();
-      const savedCount = results.filter((result) => result.status === "saved").length;
-      const duplicateCount = results.filter(
-        (result) => result.status === "duplicate",
-      ).length;
-      const parts = [];
-
-      if (savedCount > 0) {
-        parts.push(`Saved ${savedCount} game record${savedCount === 1 ? "" : "s"}.`);
-      }
-      if (duplicateCount > 0) {
-        parts.push(
-          `Skipped ${duplicateCount} duplicate replay${duplicateCount === 1 ? "" : "s"}.`,
-        );
-      }
-
-      setSaveMessage(parts.join(" ") || "No new game records were saved.");
-      return;
-    }
-
-    if (singleAnalysis && uploadedFileNames[0]) {
-      const result = await saveSingleGameAnalysis(
-        currentUser.uid,
-        uploadedFileNames[0],
-        singleAnalysis,
-      );
-      await onSavedGamesChanged?.();
-      setSaveMessage(getSingleSaveMessage(result));
-    }
-  };
-
   const getSingleSaveMessage = (result: SaveGameResult) => {
     if (result.status === "duplicate") {
       return `${result.filename} is already in your saved games.`;
@@ -444,13 +466,110 @@ export default function ReplayAnalyzer({
     return `Saved ${result.filename} to your game history.`;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const getBatchSaveMessage = (results: SaveGameResult[]) => {
+    const savedCount = results.filter((result) => result.status === "saved").length;
+    const duplicateCount = results.filter(
+      (result) => result.status === "duplicate",
+    ).length;
+    const parts = [];
 
-    if (selectedFiles.length === 0 || !uploadSource) {
-      setError("Please choose either a single replay or a replay folder");
+    if (savedCount > 0) {
+      parts.push(`Saved ${savedCount} game record${savedCount === 1 ? "" : "s"}.`);
+    }
+    if (duplicateCount > 0) {
+      parts.push(
+        `Skipped ${duplicateCount} duplicate replay${duplicateCount === 1 ? "" : "s"}.`,
+      );
+    }
+
+    return parts.join(" ") || "No new game records were saved.";
+  };
+
+  const persistCompletedAnalysis = async (
+    isBatchUpload: boolean,
+    singleAnalysis: AnalysisResponse | null,
+    batchData: BatchAnalysisResponse | null,
+    uploadedFileNames: string[],
+    trackedAssignments?: TrackedAssignmentsLookup,
+  ) => {
+    if (!currentUser) {
+      setSaveMessage("Analysis ready. Sign in with Google to save uploads.");
       return;
     }
+
+    if (isBatchUpload && batchData) {
+      const replaysToSave = batchData.replays.map((replay) => {
+        const replayId = buildReplayDocumentId(replay);
+        const autoTrackedPlayer = findAutoTrackedPlayer(
+          replay,
+          profile?.slippiGamertag ?? "",
+        );
+        const trackedPlayerAssignment =
+          trackedAssignments?.byReplayId?.[replayId] ??
+          trackedAssignments?.byFilename?.[replay.filename] ??
+          (autoTrackedPlayer
+            ? buildTrackedPlayerAssignment(autoTrackedPlayer, "profile_slippi_tag")
+            : null);
+
+        if (!trackedPlayerAssignment) {
+          throw new Error(`Missing tracked player assignment for ${replay.filename}.`);
+        }
+
+        return {
+          ...replay,
+          trackedPlayerAssignment,
+        };
+      });
+
+      const results = await saveBatchGameAnalyses(currentUser.uid, replaysToSave);
+      await onSavedGamesChanged?.();
+      setSaveMessage(getBatchSaveMessage(results));
+      return;
+    }
+
+    if (singleAnalysis && uploadedFileNames[0]) {
+      const replayId = buildReplayDocumentId(singleAnalysis);
+      const autoTrackedPlayer = findAutoTrackedPlayer(
+        singleAnalysis,
+        profile?.slippiGamertag ?? "",
+      );
+      const trackedPlayerAssignment =
+        trackedAssignments?.byReplayId?.[replayId] ??
+        trackedAssignments?.byFilename?.[uploadedFileNames[0]] ??
+        (autoTrackedPlayer
+          ? buildTrackedPlayerAssignment(autoTrackedPlayer, "profile_slippi_tag")
+          : null);
+
+      if (!trackedPlayerAssignment) {
+        throw new Error("Missing tracked player assignment.");
+      }
+
+      const result = await saveSingleGameAnalysis(
+        currentUser.uid,
+        uploadedFileNames[0],
+        singleAnalysis,
+        trackedPlayerAssignment,
+      );
+      await onSavedGamesChanged?.();
+      setSaveMessage(getSingleSaveMessage(result));
+    }
+  };
+
+  const startAnalysisUpload = async ({
+    filesToAnalyze,
+    uploadSource: nextUploadSource,
+    skippedDuplicateNames,
+    precheckWarnings,
+    trackedAssignments,
+  }: {
+    filesToAnalyze: File[];
+    uploadSource: "single" | "folder";
+    skippedDuplicateNames: string[];
+    precheckWarnings: string[];
+    trackedAssignments?: TrackedAssignmentsLookup;
+  }) => {
+    const isBatchUpload =
+      nextUploadSource === "folder" || filesToAnalyze.length > 1;
 
     setLoading(true);
     setUploadProgress(0);
@@ -462,62 +581,6 @@ export default function ReplayAnalyzer({
     setSaveMessage(null);
 
     try {
-      const isBatchUpload =
-        uploadSource === "folder" || selectedFiles.length > 1;
-      let filesToAnalyze = selectedFiles;
-      const skippedDuplicateNames: string[] = [];
-      const precheckWarnings: string[] = [];
-
-      if (skipDuplicates && currentUser) {
-        try {
-          const savedReplayIds = await loadSavedReplayIds(currentUser.uid);
-
-          if (savedReplayIds.size > 0) {
-            const replayIdentityData = await identifyReplayDocuments(selectedFiles);
-            const duplicateIndexes = new Set<number>();
-
-            replayIdentityData.replays.forEach((replay) => {
-              if (savedReplayIds.has(replay.replay_id)) {
-                duplicateIndexes.add(replay.index);
-                skippedDuplicateNames.push(replay.filename);
-              }
-            });
-
-            replayIdentityData.failed_files.forEach((file) => {
-              precheckWarnings.push(`${file.filename}: ${file.error}`);
-            });
-
-            filesToAnalyze = selectedFiles.filter((_, index) => {
-              return !duplicateIndexes.has(index);
-            });
-          }
-        } catch (precheckError) {
-          precheckWarnings.push(
-            precheckError instanceof Error
-              ? precheckError.message
-              : "Duplicate check was unavailable.",
-          );
-        }
-      }
-
-      if (filesToAnalyze.length === 0) {
-        const duplicateMessage =
-          skippedDuplicateNames.length > 0
-            ? `Skipped ${skippedDuplicateNames.length} duplicate replay${skippedDuplicateNames.length === 1 ? "" : "s"} already in your saved games.`
-            : "No new replays to analyze.";
-        const warningMessage =
-          precheckWarnings.length > 0
-            ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
-            : "";
-
-        setSaveMessage(`${duplicateMessage}${warningMessage}`);
-        setSelectedFiles([]);
-        setUploadSource(null);
-        setSelectionLabel("");
-        clearPickerValues();
-        return;
-      }
-
       const uploadedFileNames = filesToAnalyze.map((file) => file.name);
       const formData = new FormData();
       if (isBatchUpload) {
@@ -562,7 +625,13 @@ export default function ReplayAnalyzer({
         const data = normalizeBatchResponse(rawData);
         setBatchAnalysis(data);
         setSelectedTag(getDefaultBatchTag(data));
-        await persistCompletedAnalysis(isBatchUpload, null, data, uploadedFileNames);
+        await persistCompletedAnalysis(
+          true,
+          null,
+          data,
+          uploadedFileNames,
+          trackedAssignments,
+        );
         if (skippedDuplicateNames.length > 0) {
           setSaveMessage((currentMessage) => {
             const duplicateMessage = `Skipped ${skippedDuplicateNames.length} duplicate replay${skippedDuplicateNames.length === 1 ? "" : "s"} before analysis.`;
@@ -582,10 +651,11 @@ export default function ReplayAnalyzer({
         setAnalysis(data);
         setActiveTab("overview");
         await persistCompletedAnalysis(
-          isBatchUpload,
+          false,
           data,
           null,
           uploadedFileNames,
+          trackedAssignments,
         );
         if (skippedDuplicateNames.length > 0) {
           setSaveMessage((currentMessage) => {
@@ -613,8 +683,10 @@ export default function ReplayAnalyzer({
       setUploadSource(null);
       setSelectionLabel("");
       clearPickerValues();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "An error occurred");
+    } catch (uploadError) {
+      setError(
+        uploadError instanceof Error ? uploadError.message : "An error occurred",
+      );
     } finally {
       setUploadProgress(null);
       setAnalysisProgress(null);
@@ -622,9 +694,270 @@ export default function ReplayAnalyzer({
     }
   };
 
+  const handleSaveAssignedReplays = async () => {
+    if (!pendingAssignmentState) {
+      return;
+    }
+
+    const missingReplay = pendingAssignmentState.replays.find((replay) => {
+      return !pendingAssignmentState.values[replay.replayId];
+    });
+
+    if (missingReplay) {
+      setPendingAssignmentState((current) =>
+        current
+          ? {
+              ...current,
+              error: `Choose your player for ${missingReplay.filename} before saving.`,
+            }
+          : current,
+      );
+      return;
+    }
+
+    setPendingAssignmentState((current) =>
+      current ? { ...current, saving: true, error: null } : current,
+    );
+
+    try {
+      const byReplayId = Object.fromEntries(
+        pendingAssignmentState.replays.map((replay) => {
+          const selectedPlayerIndex = Number(
+            pendingAssignmentState.values[replay.replayId],
+          );
+          const selectedPlayer = replay.players.find(
+            (player) => player.player_index === selectedPlayerIndex,
+          );
+
+          if (!selectedPlayer) {
+            throw new Error(`Could not resolve player for ${replay.filename}.`);
+          }
+
+          return [
+            replay.replayId,
+            buildTrackedPlayerAssignment(
+              selectedPlayer,
+              replay.suggestedAssignment?.playerIndex === selectedPlayerIndex
+                ? replay.suggestedAssignment.source
+                : "manual",
+            ),
+          ];
+        }),
+      ) as Record<string, TrackedPlayerAssignment>;
+      const byFilename = Object.fromEntries(
+        pendingAssignmentState.replays.map((replay) => [
+          replay.filename,
+          byReplayId[replay.replayId],
+        ]),
+      ) as Record<string, TrackedPlayerAssignment>;
+
+      const pendingState = pendingAssignmentState;
+      setPendingAssignmentState(null);
+      await startAnalysisUpload({
+        filesToAnalyze: pendingState.filesToAnalyze,
+        uploadSource: pendingState.uploadSource,
+        skippedDuplicateNames: pendingState.skippedDuplicateNames,
+        precheckWarnings: pendingState.precheckWarnings,
+        trackedAssignments: {
+          byReplayId,
+          byFilename,
+        },
+      });
+    } catch (saveError) {
+      setPendingAssignmentState((current) =>
+        current
+          ? {
+              ...current,
+              saving: false,
+              error:
+                saveError instanceof Error
+                  ? saveError.message
+                  : "Failed to prepare replay assignments.",
+            }
+          : current,
+      );
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (selectedFiles.length === 0 || !uploadSource) {
+      setError("Please choose either a single replay or a replay folder");
+      return;
+    }
+
+    setLoading(true);
+    setUploadProgress(0);
+    setAnalysisProgress(null);
+    setError(null);
+    setAnalysis(null);
+    setBatchAnalysis(null);
+    setIsDemoReplay(false);
+    setSaveMessage(null);
+
+    try {
+      let filesToAnalyze = selectedFiles;
+      const skippedDuplicateNames: string[] = [];
+      const precheckWarnings: string[] = [];
+      let replayIdentityData: ReplayIdentityResponse | null = null;
+      const duplicateIndexes = new Set<number>();
+
+      if (currentUser) {
+        try {
+          replayIdentityData = await identifyReplayDocuments(selectedFiles);
+          replayIdentityData.failed_files.forEach((file) => {
+            precheckWarnings.push(`${file.filename}: ${file.error}`);
+          });
+
+          if (skipDuplicates) {
+            const savedReplayIds = await loadSavedReplayIds(currentUser.uid);
+            replayIdentityData.replays.forEach((replay) => {
+              if (savedReplayIds.has(replay.replay_id)) {
+                duplicateIndexes.add(replay.index);
+                skippedDuplicateNames.push(replay.filename);
+              }
+            });
+          }
+        } catch (precheckError) {
+          precheckWarnings.push(
+            precheckError instanceof Error
+              ? precheckError.message
+              : "Replay metadata lookup was unavailable.",
+          );
+        }
+      }
+
+      filesToAnalyze = selectedFiles.filter((_, index) => {
+        return !duplicateIndexes.has(index);
+      });
+
+      if (filesToAnalyze.length === 0) {
+        const duplicateMessage =
+          skippedDuplicateNames.length > 0
+            ? `Skipped ${skippedDuplicateNames.length} duplicate replay${skippedDuplicateNames.length === 1 ? "" : "s"} already in your saved games.`
+            : "No new replays to analyze.";
+        const warningMessage =
+          precheckWarnings.length > 0
+            ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
+            : "";
+
+        setSaveMessage(`${duplicateMessage}${warningMessage}`);
+        setSelectedFiles([]);
+        setUploadSource(null);
+        setSelectionLabel("");
+        clearPickerValues();
+        return;
+      }
+
+      if (currentUser && replayIdentityData) {
+        const pendingReplays = replayIdentityData.replays
+          .filter((replay) => !duplicateIndexes.has(replay.index))
+          .map((replay) => {
+            const players = (replay.metadata?.players ?? []).filter(
+              (player) => !player.is_cpu,
+            );
+            const suggestedPlayer = findAutoTrackedPlayer(
+              { metadata: replay.metadata },
+              profile?.slippiGamertag ?? "",
+            );
+
+            return {
+              replayId: replay.replay_id,
+              filename: replay.filename,
+              players,
+              suggestedAssignment: suggestedPlayer
+                ? buildTrackedPlayerAssignment(
+                    suggestedPlayer,
+                    "profile_slippi_tag",
+                  )
+                : null,
+            };
+          });
+
+        const unresolvedReplays = pendingReplays.filter(
+          (replay) => replay.suggestedAssignment == null,
+        );
+
+        if (unresolvedReplays.length > 0) {
+          setPendingAssignmentState({
+            replays: pendingReplays,
+            values: Object.fromEntries(
+              pendingReplays.map((replay) => [
+                replay.replayId,
+                replay.suggestedAssignment
+                  ? String(replay.suggestedAssignment.playerIndex)
+                  : "",
+              ]),
+            ),
+            applyToAllValue: "",
+            filesToAnalyze,
+            uploadSource,
+            skippedDuplicateNames,
+            precheckWarnings,
+            saving: false,
+            error: null,
+          });
+          setSaveMessage(
+            `Choose your player assignment for ${unresolvedReplays.length} replay${unresolvedReplays.length === 1 ? "" : "s"} before saving.`,
+          );
+          return;
+        }
+
+        const byReplayId = Object.fromEntries(
+          pendingReplays
+            .filter(
+              (replay): replay is PendingAssignmentReplay & {
+                suggestedAssignment: TrackedPlayerAssignment;
+              } => replay.suggestedAssignment != null,
+            )
+            .map((replay) => [replay.replayId, replay.suggestedAssignment]),
+        ) as Record<string, TrackedPlayerAssignment>;
+        const byFilename = Object.fromEntries(
+          pendingReplays
+            .filter(
+              (replay): replay is PendingAssignmentReplay & {
+                suggestedAssignment: TrackedPlayerAssignment;
+              } => replay.suggestedAssignment != null,
+            )
+            .map((replay) => [replay.filename, replay.suggestedAssignment]),
+        ) as Record<string, TrackedPlayerAssignment>;
+
+        await startAnalysisUpload({
+          filesToAnalyze,
+          uploadSource,
+          skippedDuplicateNames,
+          precheckWarnings,
+          trackedAssignments: {
+            byReplayId,
+            byFilename,
+          },
+        });
+        return;
+      }
+
+      await startAnalysisUpload({
+        filesToAnalyze,
+        uploadSource,
+        skippedDuplicateNames,
+        precheckWarnings,
+      });
+      return;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An error occurred");
+    } finally {
+      if (!pendingAssignmentState) {
+        setUploadProgress(null);
+        setAnalysisProgress(null);
+        setLoading(false);
+      }
+    }
+  };
+
   return (
-    <div className="mx-auto max-w-4xl">
-      <div className={"grid gap-8 justify-center"}>
+    <>
+      <div className="mx-auto max-w-4xl">
+        <div className={"grid gap-8 justify-center"}>
         <div
           className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
               analysis ? "p-5" : "p-8"
@@ -821,26 +1154,28 @@ export default function ReplayAnalyzer({
                   </div>
                 )}
 
-                <button
-                  type="submit"
-                  disabled={selectedFiles.length === 0 || loading}
-                  className={`px-6 py-3 bg-linear-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed ${
-                    analysis ? "lg:self-start" : "w-full"
-                  }`}
-                >
-                  {loading ? (
-                    <span className="flex items-center justify-center gap-2">
-                      <span className="animate-spin">⚙️</span>{" "}
-                      {uploadSource === "folder"
-                        ? "Analyzing folder..."
-                        : "Analyzing..."}
-                    </span>
-                  ) : uploadSource === "folder" ? (
-                    "Analyze Trends"
-                  ) : (
-                    "Analyze Replay"
-                  )}
-                </button>
+                {(selectedFiles.length > 0 || (!analysis && !batchAnalysis)) && (
+                  <button
+                    type="submit"
+                    disabled={selectedFiles.length === 0 || loading}
+                    className={`px-6 py-3 bg-linear-to-r from-purple-500 to-pink-500 text-white font-semibold rounded-lg hover:shadow-lg hover:shadow-purple-500/50 transition disabled:opacity-50 disabled:cursor-not-allowed ${
+                      analysis ? "lg:self-start" : "w-full"
+                    }`}
+                  >
+                    {loading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="animate-spin">⚙️</span>{" "}
+                        {uploadSource === "folder"
+                          ? "Analyzing folder..."
+                          : "Analyzing..."}
+                      </span>
+                    ) : uploadSource === "folder" ? (
+                      "Analyze Trends"
+                    ) : (
+                      "Analyze Replay"
+                    )}
+                  </button>
+                )}
               </form>
             </div>
 
@@ -1185,7 +1520,215 @@ export default function ReplayAnalyzer({
               </div>
             )}
           </div>
+        </div>
       </div>
-    </div>
+
+      {pendingAssignmentState ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/75 p-4 backdrop-blur-sm">
+          <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-3xl border border-slate-600 bg-slate-900 p-6 shadow-2xl shadow-black/50">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                  Save Replays
+                </p>
+                <h3 className="mt-2 text-2xl font-bold text-white">
+                  Choose which player was you
+                </h3>
+                <p className="mt-2 text-sm text-slate-300">
+                  Online replays auto-use your saved Slippi tag when possible.
+                  Anything unresolved, including console replays, can be set here
+                  before saving.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setPendingAssignmentState(null)}
+                className="rounded-full border border-slate-600 bg-slate-800 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-slate-700"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-6 space-y-4">
+              {pendingAssignmentState.replays.length > 1 &&
+              commonAssignablePlayerIndices.length > 0 ? (
+                <div className="rounded-2xl border border-purple-500/30 bg-purple-500/10 p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        Apply one player to the whole batch
+                      </p>
+                      <p className="mt-1 text-sm text-slate-300">
+                        Choose a player number once to fill every replay in this
+                        upload. You can still adjust individual games below.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                      <label className="flex min-w-52 flex-col gap-2 text-sm text-slate-300">
+                        Batch player
+                        <select
+                          value={pendingAssignmentState.applyToAllValue}
+                          onChange={(event) =>
+                            setPendingAssignmentState((current) =>
+                              current
+                                ? {
+                                    ...current,
+                                    applyToAllValue: event.target.value,
+                                  }
+                                : current,
+                            )
+                          }
+                          className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-white outline-none transition focus:border-purple-400"
+                        >
+                          <option value="">Select player</option>
+                          {commonAssignablePlayerIndices.map((playerIndex) => (
+                            <option key={`apply-all-${playerIndex}`} value={playerIndex}>
+                              Player {playerIndex + 1}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setPendingAssignmentState((current) => {
+                            if (!current?.applyToAllValue) {
+                              return current;
+                            }
+
+                            return {
+                              ...current,
+                              error: null,
+                              values: Object.fromEntries(
+                                current.replays.map((replay) => [
+                                  replay.replayId,
+                                  current.applyToAllValue,
+                                ]),
+                              ),
+                            };
+                          })
+                        }
+                        disabled={!pendingAssignmentState.applyToAllValue}
+                        className="rounded-xl border border-cyan-400/40 bg-cyan-500/10 px-4 py-2.5 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Apply To All
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+
+              {pendingAssignmentState.replays.map((replay) => (
+                <div
+                  key={replay.replayId}
+                  className="rounded-2xl border border-slate-700 bg-slate-950/40 p-4"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        {replay.filename}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        {replay.suggestedAssignment
+                          ? `Auto-selected ${replay.suggestedAssignment.playerLabel} from your profile tag.`
+                          : "No automatic match found."}
+                      </p>
+                    </div>
+
+                    <label className="flex w-full flex-col gap-2 text-sm text-slate-300 lg:w-80">
+                      I was this player
+                      <select
+                        value={pendingAssignmentState.values[replay.replayId] ?? ""}
+                        onChange={(event) =>
+                          setPendingAssignmentState((current) =>
+                            current
+                              ? {
+                                  ...current,
+                                  error: null,
+                                  values: {
+                                    ...current.values,
+                                    [replay.replayId]: event.target.value,
+                                  },
+                                }
+                              : current,
+                          )
+                        }
+                        className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2.5 text-white outline-none transition focus:border-purple-400"
+                      >
+                        <option value="">Select player</option>
+                        {replay.players.map((player) => (
+                          <option
+                            key={`${replay.replayId}-${player.player_index}`}
+                            value={player.player_index}
+                          >
+                            {getPlayerAssignmentLabel(player)} • {formatCharacterName(player.character)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {replay.players.map((player) => (
+                      <div
+                        key={`${replay.replayId}-card-${player.player_index}`}
+                        className="rounded-xl border border-slate-700 bg-slate-900/50 p-3 text-sm text-slate-200"
+                      >
+                        <div className="flex items-center gap-3">
+                          <CharacterIcon
+                            character={player.character}
+                            className="h-8 w-8"
+                          />
+                          <div>
+                            <p className="font-semibold text-white">
+                              {getPlayerAssignmentLabel(player)}
+                            </p>
+                            <p className="text-xs text-slate-400">
+                              {formatCharacterName(player.character)}
+                              {getPlayerAssignmentDetail(player)
+                                ? ` • ${getPlayerAssignmentDetail(player)}`
+                                : ""}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {pendingAssignmentState.error ? (
+              <p className="mt-4 text-sm text-red-300">
+                {pendingAssignmentState.error}
+              </p>
+            ) : null}
+
+            <div className="mt-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingAssignmentState(null)}
+                className="rounded-xl border border-slate-600 bg-slate-800 px-4 py-2.5 text-sm font-semibold text-slate-200 transition hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSaveAssignedReplays();
+                }}
+                disabled={pendingAssignmentState.saving}
+                className="rounded-xl border border-purple-400/50 bg-purple-500/15 px-4 py-2.5 text-sm font-semibold text-purple-100 transition hover:border-purple-300 hover:bg-purple-500/25 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {pendingAssignmentState.saving ? "Saving..." : "Save Replays"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }

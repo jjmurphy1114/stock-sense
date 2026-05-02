@@ -1,32 +1,32 @@
 import { useRef, useState } from "react";
 import type { User } from "firebase/auth";
 
-import { getStageLayout } from "../lib/stageLayout";
 import {
-  buildReplayDocumentId,
-  loadSavedReplayIds,
-  saveBatchGameAnalyses,
-  saveSingleGameAnalysis,
-  type SaveGameResult,
-} from "../lib/gameHistory";
+  getDefaultBatchTag,
+  getPlayerFeedbackGroups,
+  getTechSuccessRate,
+} from "../lib/replayAnalysisUi";
+import { buildReplayDocumentId, loadSavedReplayIds, saveBatchGameAnalyses, saveSingleGameAnalysis, type SaveGameResult } from "../lib/gameHistory";
 import {
   buildTrackedPlayerAssignment,
   findAutoTrackedPlayer,
   getPlayerAssignmentDetail,
   getPlayerAssignmentLabel,
 } from "../lib/replayAssignments";
+import { getStageLayout } from "../lib/stageLayout";
 import type { UserProfile } from "../lib/userProfile";
-import CharacterIcon from "./CharacterIcon";
-import { exampleReplayAnalysis } from "./exampleReplayAnalysis";
-import StageHitMap from "./StageHitMap";
-import TrendDashboard from "./TrendDashboard";
+import CharacterIcon from "../components/replays/CharacterIcon";
+import { exampleReplayAnalysis } from "../components/replays/exampleReplayAnalysis";
+import StageHitMap from "../components/replays/StageHitMap";
+import StatTile from "../components/replays/StatTile";
+import TrendDashboard from "../components/trends/TrendDashboard";
 import type {
   AnalysisResponse,
   AnalysisMetadataPlayer,
   BatchAnalysisResponse,
   TrackedPlayerAssignment,
-} from "./replayAnalysisTypes";
-import { formatCharacterName } from "./replayAnalysisTypes";
+} from "../components/replayAnalysisTypes";
+import { formatCharacterName } from "../components/replayAnalysisTypes";
 
 type AnalysisTab = "overview" | "graph";
 
@@ -140,99 +140,6 @@ async function waitForAnalysisJob(
   }
 }
 
-function getTechSuccessRate(techAttempts: number, missedTechs: number): number {
-  if (!techAttempts) {
-    return 0;
-  }
-
-  const successfulTechs = Math.max(0, techAttempts - missedTechs);
-  return Number(((successfulTechs / techAttempts) * 100).toFixed(1));
-}
-
-function StatTile({
-  label,
-  value,
-  detail,
-}: {
-  label: string;
-  value: string;
-  detail?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-slate-600/80 bg-slate-900/40 px-4 py-3 shadow-sm shadow-black/10">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
-        {label}
-      </p>
-      <p className="mt-2 text-lg font-semibold leading-none text-white">
-        {value}
-      </p>
-      {detail && <p className="mt-2 text-xs text-slate-400">{detail}</p>}
-    </div>
-  );
-}
-
-function getPlayerFeedbackGroups(analysis: AnalysisResponse) {
-  const perPlayer = analysis.stats.per_player;
-
-  return perPlayer.map((player) => {
-    const playerNumberLabel = `Player ${player.player_index + 1}`;
-    const exactName = player.player_name.trim();
-
-    const items = analysis.feedback.filter((entry) => {
-      return (
-        entry.includes(exactName) ||
-        entry.includes(playerNumberLabel) ||
-        entry.includes(`${player.character} vs`) ||
-        entry.includes(`In ${player.character} vs`)
-      );
-    });
-
-    return {
-      ...player,
-      feedback: items,
-    };
-  });
-}
-
-function getDefaultBatchTag(data: BatchAnalysisResponse): string {
-  const replayCounts = new Map<string, number>();
-
-  data.replays.forEach((replay) => {
-    const uniqueReplayTags = new Set<string>();
-
-    (replay.metadata?.players ?? []).forEach((player) => {
-      const rawTag = (player.tag ?? "").trim();
-      if (!rawTag || player.is_cpu) {
-        return;
-      }
-
-      uniqueReplayTags.add(rawTag);
-    });
-
-    uniqueReplayTags.forEach((tag) => {
-      replayCounts.set(tag, (replayCounts.get(tag) ?? 0) + 1);
-    });
-  });
-
-  if (replayCounts.size === 0) {
-    return data.available_tags[0] ?? "";
-  }
-
-  const rankedTags = Array.from(replayCounts.entries()).sort(
-    ([leftTag, leftCount], [rightTag, rightCount]) => {
-      if (leftCount !== rightCount) {
-        return rightCount - leftCount;
-      }
-
-      return leftTag.localeCompare(rightTag, undefined, {
-        sensitivity: "base",
-      });
-    },
-  );
-
-  return rankedTags[0]?.[0] ?? data.available_tags[0] ?? "";
-}
-
 function getCommonAssignablePlayerIndices(replays: PendingAssignmentReplay[]) {
   if (replays.length === 0) {
     return [];
@@ -299,6 +206,7 @@ export default function ReplayAnalyzer({
     null,
   );
   const [loading, setLoading] = useState(false);
+  const [isPreparingAssignments, setIsPreparingAssignments] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [analysisProgress, setAnalysisProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -788,6 +696,7 @@ export default function ReplayAnalyzer({
     }
 
     setLoading(true);
+    setIsPreparingAssignments(true);
     setUploadProgress(0);
     setAnalysisProgress(null);
     setError(null);
@@ -946,6 +855,7 @@ export default function ReplayAnalyzer({
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
     } finally {
+      setIsPreparingAssignments(false);
       if (!pendingAssignmentState) {
         setUploadProgress(null);
         setAnalysisProgress(null);
@@ -958,8 +868,8 @@ export default function ReplayAnalyzer({
     <>
       <div className="mx-auto max-w-4xl">
         <div className={"grid gap-8 justify-center"}>
-        <div
-          className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
+          <div
+            className={`bg-slate-800 rounded-xl shadow-2xl border border-purple-500/20 ${
               analysis ? "p-5" : "p-8"
             }`}
           >
@@ -1134,6 +1044,21 @@ export default function ReplayAnalyzer({
                     </div>
                   </div>
                 )}
+
+                {loading &&
+                isPreparingAssignments &&
+                uploadProgress === 0 &&
+                analysisProgress === null ? (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between text-xs text-slate-300">
+                      <span>Preparing replay assignments...</span>
+                      <span>Matching players</span>
+                    </div>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-700">
+                      <div className="h-full w-1/3 animate-pulse rounded-full bg-linear-to-r from-cyan-400 to-purple-500" />
+                    </div>
+                  </div>
+                ) : null}
 
                 {loading && analysisProgress !== null && (
                   <div className="space-y-2">

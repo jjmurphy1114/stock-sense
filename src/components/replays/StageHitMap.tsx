@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 
-import { getStageLayout } from "../lib/stageLayout";
-import { formatCharacterName, type AnalysisResponse } from "./replayAnalysisTypes";
+import { getStageLayout } from "../../lib/stageLayout";
+import { formatCharacterName, type AnalysisResponse } from "../replayAnalysisTypes";
 
 type HitMapFilter = "all" | number;
 
@@ -261,95 +261,76 @@ export default function StageHitMap({
               y1={-segment.y1}
               x2={segment.x2}
               y2={-segment.y2}
-              stroke="#f8fafc"
-              strokeWidth="3"
+              stroke="#e2e8f0"
+              strokeWidth="2.75"
               strokeLinecap="round"
             />
           ))}
 
-          {stageLayout.platforms.map((segment, index) => (
+          {stageLayout.platforms.map((platform, index) => (
             <line
               key={`platform-${index}`}
-              x1={segment.x1}
-              y1={-segment.y1}
-              x2={segment.x2}
-              y2={-segment.y2}
-              stroke="#c4b5fd"
-              strokeWidth="2.5"
+              x1={platform.x1}
+              y1={-platform.y1}
+              x2={platform.x2}
+              y2={-platform.y2}
+              stroke="#cbd5f5"
+              strokeOpacity="0.9"
+              strokeWidth="2.1"
               strokeLinecap="round"
             />
           ))}
 
           {displayedHitLocations.map((location, index) => {
-            const playerIndex = analysis.stats.per_player.findIndex(
-              (player) => player.player_index === location.player_index,
-            );
-            const fill =
-              location.is_stock_loss
-                ? "#f97316"
-                : playerColors[
-                    (playerIndex >= 0 ? playerIndex : 0) % playerColors.length
-                  ];
-            const radius = Math.min(4.75, 2 + location.damage_taken / 6);
-            const direction =
+            const color =
+              playerColors[location.player_index % playerColors.length];
+            const normalizedLaunch =
               location.launch_dx !== null && location.launch_dy !== null
                 ? normalizeVector(location.launch_dx, location.launch_dy)
                 : null;
-            const arrowLength = radius + 10;
-            const arrowEndX = direction
-              ? location.x + direction.dx * arrowLength
+            const lineLength = location.is_stock_loss ? 11 : 7;
+            const lineEndX = normalizedLaunch
+              ? location.x + normalizedLaunch.dx * lineLength
               : location.x;
-            const arrowEndY = direction
-              ? -(location.y + direction.dy * arrowLength)
-              : -location.y;
+            const lineEndY = normalizedLaunch
+              ? location.y + normalizedLaunch.dy * lineLength
+              : location.y;
 
             return (
-              <g key={`${location.player_index}-${location.frame_index}-${index}`}>
-                {direction && (
+              <g key={`${location.frame_index}-${location.player_index}-${index}`}>
+                {normalizedLaunch ? (
                   <line
                     x1={location.x}
                     y1={-location.y}
-                    x2={arrowEndX}
-                    y2={arrowEndY}
+                    x2={lineEndX}
+                    y2={-lineEndY}
                     stroke="#f8fafc"
-                    strokeOpacity="0.75"
-                    strokeWidth="0.95"
+                    strokeOpacity={location.is_stock_loss ? 0.95 : 0.65}
+                    strokeWidth={location.is_stock_loss ? 1.8 : 1.2}
                     markerEnd="url(#hitDirectionArrow)"
                   />
-                )}
+                ) : null}
                 <circle
                   cx={location.x}
                   cy={-location.y}
-                  r={radius + 2}
-                  fill={fill}
-                  opacity={location.is_stock_loss ? "0.3" : "0.12"}
+                  r={location.is_stock_loss ? 4.4 : 3.1}
+                  fill={color}
+                  fillOpacity={location.is_stock_loss ? 1 : 0.78}
+                  stroke={location.is_stock_loss ? "#f8fafc" : "#0f172a"}
+                  strokeWidth={location.is_stock_loss ? 1.3 : 0.9}
                 />
-                <circle
-                  cx={location.x}
-                  cy={-location.y}
-                  r={location.is_stock_loss ? radius + 1.4 : radius}
-                  fill={fill}
-                  opacity={location.is_stock_loss ? "0.95" : "0.72"}
-                  stroke={location.is_stock_loss ? "#fde68a" : "#0f172a"}
-                  strokeWidth={location.is_stock_loss ? "2.2" : "0.75"}
-                >
-                  <title>
-                    {`${location.player_name} (${formatCharacterName(location.character)}) took ${location.damage_taken}% on frame ${location.frame_index} at (${location.x}, ${location.y})${direction ? ` and was launched toward (${arrowEndX.toFixed(1)}, ${(-arrowEndY).toFixed(1)})` : ""}`}
-                  </title>
-                </circle>
+                <title>
+                  {`${location.player_name} (${formatCharacterName(
+                    location.character,
+                  )}) • ${location.damage_taken} dmg → ${
+                    location.percent_after_hit
+                  }% at frame ${location.frame_index}`}
+                </title>
               </g>
             );
           })}
         </svg>
       </div>
-
-      <p className="mt-3 text-xs text-slate-400">
-        Showing {displayedHitLocations.length} of {visibleHitLocations.length}{" "}
-        hit{visibleHitLocations.length === 1 ? "" : "s"}. Larger dots mean more
-        damage from that hit. White-ringed dots mark hits that also coincided
-        with a stock loss, and arrows estimate the launch direction from the
-        next few frames of movement.
-      </p>
     </div>
   );
 }

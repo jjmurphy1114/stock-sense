@@ -13,8 +13,8 @@ import {
 } from "firebase/auth";
 
 import ProfileMenu from "./components/ProfileMenu";
-import ReplayAnalyzer from "./components/ReplayAnalyzer";
-import SavedGamesPage from "./components/SavedGamesPage";
+import ReplayAnalyzer from "./routes/ReplayAnalyzer";
+import SavedGamesPage from "./routes/SavedGamesPage";
 import { auth, firebaseConfigError, googleProvider } from "./lib/firebase";
 import {
   getDefaultUserProfile,

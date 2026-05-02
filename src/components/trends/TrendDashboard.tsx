@@ -1,6 +1,11 @@
 import { memo, useMemo, useState } from "react";
 
-import { averageBy, averageDefinedNumbers, getTechSuccessRate, roundValue } from "../../lib/replayAnalysisUi";
+import {
+  averageBy,
+  averageDefinedNumbers,
+  getTechSuccessRate,
+  roundValue,
+} from "../../lib/replayAnalysisUi";
 import CharacterIcon from "../replays/CharacterIcon";
 import ReplayAssignmentList from "../replays/ReplayAssignmentList";
 import StatTile from "../replays/StatTile";
@@ -337,8 +342,10 @@ function getUniqueCharacters(
 }
 
 function getUniqueOpponentIdentities(matches: TrendMatch[]) {
-  return Array.from(new Set(matches.map((match) => match.opponentIdentity))).sort(
-    (left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }),
+  return Array.from(
+    new Set(matches.map((match) => match.opponentIdentity)),
+  ).sort((left, right) =>
+    left.localeCompare(right, undefined, { sensitivity: "base" }),
   );
 }
 
@@ -367,7 +374,6 @@ const TrendDashboard = memo(function TrendDashboard({
   heading = "Trend Tracking",
   summaryLabel = "Uploads analyzed",
   subtitle = "Review habits across a folder of replays by Slippi tag",
-  defaultMatchedReplaysOpen = true,
   showAssignmentSection = true,
 }: {
   batchAnalysis: BatchAnalysisResponse;
@@ -376,23 +382,19 @@ const TrendDashboard = memo(function TrendDashboard({
   heading?: string;
   summaryLabel?: string;
   subtitle?: string;
-  defaultMatchedReplaysOpen?: boolean;
   showAssignmentSection?: boolean;
 }) {
   const [replayOverrides, setReplayOverrides] = useState<
     Record<string, ReplayOverrideValue>
   >({});
   const [isAssignmentOpen, setIsAssignmentOpen] = useState(false);
-  const [isMatchedReplaysOpen, setIsMatchedReplaysOpen] = useState(
-    defaultMatchedReplaysOpen,
-  );
   const [myCharacterFilter, setMyCharacterFilter] = useState<string[]>([]);
-  const [opponentCharacterFilter, setOpponentCharacterFilter] = useState<string[]>(
-    [],
-  );
-  const [opponentIdentityFilter, setOpponentIdentityFilter] = useState<string[]>(
-    [],
-  );
+  const [opponentCharacterFilter, setOpponentCharacterFilter] = useState<
+    string[]
+  >([]);
+  const [opponentIdentityFilter, setOpponentIdentityFilter] = useState<
+    string[]
+  >([]);
   const [stageFilter, setStageFilter] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -530,7 +532,7 @@ const TrendDashboard = memo(function TrendDashboard({
           selectedValue:
             replayOverrides[replayId] === "auto"
               ? ""
-              : replayOverrides[replayId] ?? "",
+              : (replayOverrides[replayId] ?? ""),
           players: (replay.metadata?.players ?? []).map((player) => ({
             playerIndex: player.player_index,
             label: `P${player.player_index + 1}: ${getPlayerIdentityLabel(player)}`,
@@ -550,7 +552,10 @@ const TrendDashboard = memo(function TrendDashboard({
     () =>
       roundValue(
         averageBy(matches, (match) =>
-          getTechSuccessRate(match.stats.tech_attempts, match.stats.missed_techs),
+          getTechSuccessRate(
+            match.stats.tech_attempts,
+            match.stats.missed_techs,
+          ),
         ),
       ),
     [matches],
@@ -562,7 +567,10 @@ const TrendDashboard = memo(function TrendDashboard({
   );
   const totalTechToward = useMemo(
     () =>
-      matches.reduce((total, match) => total + match.stats.tech_towards_count, 0),
+      matches.reduce(
+        (total, match) => total + match.stats.tech_towards_count,
+        0,
+      ),
     [matches],
   );
   const totalTechAway = useMemo(
@@ -580,9 +588,7 @@ const TrendDashboard = memo(function TrendDashboard({
   );
   const avgDamagePerOpening = useMemo(
     () =>
-      roundValue(
-        averageBy(matches, (match) => match.stats.damage_per_opening),
-      ),
+      roundValue(averageBy(matches, (match) => match.stats.damage_per_opening)),
     [matches],
   );
   const avgApm = useMemo(
@@ -591,7 +597,10 @@ const TrendDashboard = memo(function TrendDashboard({
     [matches],
   );
   const avgStocksRemainingValue = useMemo(
-    () => averageDefinedNumbers(matches.map((match) => match.trackedPlayerStocksLeft)),
+    () =>
+      averageDefinedNumbers(
+        matches.map((match) => match.trackedPlayerStocksLeft),
+      ),
     [matches],
   );
   const avgStocksRemaining =
@@ -619,9 +628,7 @@ const TrendDashboard = memo(function TrendDashboard({
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               {heading}
             </p>
-            <p className="mt-2 text-lg font-semibold text-white">
-              {subtitle}
-            </p>
+            <p className="mt-2 text-lg font-semibold text-white">{subtitle}</p>
             <p className="mt-1 text-sm text-slate-400">
               {summaryLabel}: {batchAnalysis.replays.length}
               {batchAnalysis.failed_files.length > 0
@@ -745,7 +752,8 @@ const TrendDashboard = memo(function TrendDashboard({
               onChange={(itemId, value) =>
                 setReplayOverrides((current) => ({
                   ...current,
-                  [itemId]: value === "" ? "auto" : (value as ReplayOverrideValue),
+                  [itemId]:
+                    value === "" ? "auto" : (value as ReplayOverrideValue),
                 }))
               }
             />
@@ -846,26 +854,17 @@ const TrendDashboard = memo(function TrendDashboard({
           </div>
 
           <div className="space-y-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
-                Matched Replays
-              </p>
-              <button
-                type="button"
-                onClick={() => setIsMatchedReplaysOpen((current) => !current)}
-                className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/80"
-              >
-                {isMatchedReplaysOpen ? "Hide replays" : "Show replays"}
-              </button>
-            </div>
-            {isMatchedReplaysOpen ? (
-              <div className="space-y-3">
+            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
+              Matched Replays
+            </p>
+            <div className="rounded-2xl border border-slate-600 bg-slate-950/25 p-2">
+              <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
                 {matches.map((match) => (
                   <div
                     key={match.replayId}
-                    className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4"
+                    className="rounded-xl border border-slate-600 bg-slate-900/35 p-3"
                   >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                       <div>
                         <p className="text-sm font-semibold text-white">
                           {match.filename}
@@ -901,22 +900,24 @@ const TrendDashboard = memo(function TrendDashboard({
                       </span>
                     </div>
 
-                    <div className="mt-4 flex flex-wrap gap-3">
-                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-100">
                         <CharacterIcon
                           character={match.character}
-                          className="h-7 w-7"
+                          className="h-6 w-6"
                         />
-                        <span>{getPlayerIdentityLabel(match.trackedPlayer)}</span>
+                        <span>
+                          {getPlayerIdentityLabel(match.trackedPlayer)}
+                        </span>
                         <span className="text-slate-400">•</span>
                         <span>
                           {match.trackedPlayerStocksLeft ?? "N/A"} stocks
                         </span>
                       </div>
-                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-2 text-sm text-slate-100">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-100">
                         <CharacterIcon
                           character={match.opponentCharacter}
-                          className="h-7 w-7"
+                          className="h-6 w-6"
                         />
                         <span>
                           {match.opponent
@@ -928,14 +929,14 @@ const TrendDashboard = memo(function TrendDashboard({
                       </div>
                     </div>
 
-                    <div className="mt-4 grid grid-cols-2 gap-3 text-sm sm:grid-cols-4 xl:grid-cols-5">
-                      <div className="rounded-lg bg-slate-800/70 p-3">
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 xl:grid-cols-5">
+                      <div className="rounded-lg bg-slate-800/70 p-2.5">
                         <p className="text-slate-400">L-Cancel</p>
                         <p className="mt-1 font-semibold text-white">
                           {match.stats.l_cancel_rate}%
                         </p>
                       </div>
-                      <div className="rounded-lg bg-slate-800/70 p-3">
+                      <div className="rounded-lg bg-slate-800/70 p-2.5">
                         <p className="text-slate-400">Successful Tech</p>
                         <p className="mt-1 font-semibold text-white">
                           {getTechSuccessRate(
@@ -945,7 +946,7 @@ const TrendDashboard = memo(function TrendDashboard({
                           %
                         </p>
                       </div>
-                      <div className="rounded-lg bg-slate-800/70 p-3">
+                      <div className="rounded-lg bg-slate-800/70 p-2.5">
                         <p className="text-slate-400">Tech Direction</p>
                         <p className="mt-1 font-semibold text-white">
                           T {match.stats.tech_towards_count} • A{" "}
@@ -953,13 +954,13 @@ const TrendDashboard = memo(function TrendDashboard({
                           {match.stats.tech_in_place_count}
                         </p>
                       </div>
-                      <div className="rounded-lg bg-slate-800/70 p-3">
+                      <div className="rounded-lg bg-slate-800/70 p-2.5">
                         <p className="text-slate-400">Neutral Win</p>
                         <p className="mt-1 font-semibold text-white">
                           {match.stats.neutral_win_rate}%
                         </p>
                       </div>
-                      <div className="rounded-lg bg-slate-800/70 p-3">
+                      <div className="rounded-lg bg-slate-800/70 p-2.5">
                         <p className="text-slate-400">Damage/Open</p>
                         <p className="mt-1 font-semibold text-white">
                           {match.stats.damage_per_opening}
@@ -969,7 +970,7 @@ const TrendDashboard = memo(function TrendDashboard({
                   </div>
                 ))}
               </div>
-            ) : null}
+            </div>
           </div>
         </>
       )}

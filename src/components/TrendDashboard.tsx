@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 
 import CharacterIcon from "./CharacterIcon";
+import FilterMultiSelect from "./FilterMultiSelect";
 import type {
   AnalysisMetadataPlayer,
   BatchAnalysisResponse,
@@ -27,6 +28,7 @@ type TrendMatch = {
   opponentStocksLeft: number | null;
   opponentCharacter: string;
   opponentTag: string;
+  opponentIdentity: string;
 };
 
 type TrendMetricKey =
@@ -174,9 +176,10 @@ function getTrendMatches(
   batchAnalysis: BatchAnalysisResponse,
   selectedTag: string | undefined,
   replayOverrides: Record<string, ReplayOverrideValue>,
-  myCharacterFilter: string,
-  opponentCharacterFilter: string,
-  stageFilter: string,
+  myCharacterFilter: string[],
+  opponentCharacterFilter: string[],
+  stageFilter: string[],
+  opponentIdentityFilter: string[],
   dateFrom: string,
   dateTo: string,
 ) {
@@ -228,20 +231,33 @@ function getTrendMatches(
       opponentCharacter: opponent?.character ?? "Unknown",
       opponentTag:
         opponent?.tag ?? `Player ${(opponent?.player_index ?? 0) + 1}`,
+      opponentIdentity: opponent
+        ? getPlayerIdentityLabel(opponent)
+        : "Unknown opponent",
     };
 
-    if (myCharacterFilter !== "all" && match.character !== myCharacterFilter) {
-      return;
-    }
-
     if (
-      opponentCharacterFilter !== "all" &&
-      match.opponentCharacter !== opponentCharacterFilter
+      myCharacterFilter.length > 0 &&
+      !myCharacterFilter.includes(match.character)
     ) {
       return;
     }
 
-    if (stageFilter !== "all" && match.stage !== stageFilter) {
+    if (
+      opponentCharacterFilter.length > 0 &&
+      !opponentCharacterFilter.includes(match.opponentCharacter)
+    ) {
+      return;
+    }
+
+    if (stageFilter.length > 0 && !stageFilter.includes(match.stage)) {
+      return;
+    }
+
+    if (
+      opponentIdentityFilter.length > 0 &&
+      !opponentIdentityFilter.includes(match.opponentIdentity)
+    ) {
       return;
     }
 
@@ -382,6 +398,12 @@ function getUniqueCharacters(
   selector: (match: TrendMatch) => string,
 ) {
   return Array.from(new Set(matches.map(selector))).sort();
+}
+
+function getUniqueOpponentIdentities(matches: TrendMatch[]) {
+  return Array.from(new Set(matches.map((match) => match.opponentIdentity))).sort(
+    (left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }),
+  );
 }
 
 function TrendStat({
@@ -612,9 +634,14 @@ const TrendDashboard = memo(function TrendDashboard({
   const [isMatchedReplaysOpen, setIsMatchedReplaysOpen] = useState(
     defaultMatchedReplaysOpen,
   );
-  const [myCharacterFilter, setMyCharacterFilter] = useState("all");
-  const [opponentCharacterFilter, setOpponentCharacterFilter] = useState("all");
-  const [stageFilter, setStageFilter] = useState("all");
+  const [myCharacterFilter, setMyCharacterFilter] = useState<string[]>([]);
+  const [opponentCharacterFilter, setOpponentCharacterFilter] = useState<string[]>(
+    [],
+  );
+  const [opponentIdentityFilter, setOpponentIdentityFilter] = useState<string[]>(
+    [],
+  );
+  const [stageFilter, setStageFilter] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
 
@@ -624,9 +651,10 @@ const TrendDashboard = memo(function TrendDashboard({
         batchAnalysis,
         selectedTag,
         replayOverrides,
-        "all",
-        "all",
-        "all",
+        [],
+        [],
+        [],
+        [],
         "",
         "",
       ),
@@ -641,6 +669,7 @@ const TrendDashboard = memo(function TrendDashboard({
         myCharacterFilter,
         opponentCharacterFilter,
         stageFilter,
+        opponentIdentityFilter,
         dateFrom,
         dateTo,
       ),
@@ -651,6 +680,7 @@ const TrendDashboard = memo(function TrendDashboard({
       myCharacterFilter,
       opponentCharacterFilter,
       stageFilter,
+      opponentIdentityFilter,
       dateFrom,
       dateTo,
     ],
@@ -686,6 +716,42 @@ const TrendDashboard = memo(function TrendDashboard({
   const availableStages = useMemo(
     () => getUniqueStages(allResolvedMatches),
     [allResolvedMatches],
+  );
+  const availableOpponentIdentities = useMemo(
+    () => getUniqueOpponentIdentities(allResolvedMatches),
+    [allResolvedMatches],
+  );
+  const myCharacterOptions = useMemo(
+    () =>
+      availableMyCharacters.map((character) => ({
+        value: character,
+        label: formatCharacterName(character),
+      })),
+    [availableMyCharacters],
+  );
+  const opponentCharacterOptions = useMemo(
+    () =>
+      availableOpponentCharacters.map((character) => ({
+        value: character,
+        label: formatCharacterName(character),
+      })),
+    [availableOpponentCharacters],
+  );
+  const stageOptions = useMemo(
+    () =>
+      availableStages.map((stage) => ({
+        value: stage,
+        label: formatStageName(stage),
+      })),
+    [availableStages],
+  );
+  const opponentIdentityOptions = useMemo(
+    () =>
+      availableOpponentIdentities.map((identity) => ({
+        value: identity,
+        label: identity,
+      })),
+    [availableOpponentIdentities],
   );
   const overrideCount = Object.values(replayOverrides).filter(
     (value) => value !== "auto",
@@ -780,14 +846,14 @@ const TrendDashboard = memo(function TrendDashboard({
             </p>
           </div>
 
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <div className="grid w-full grid-cols-2 gap-3 xl:grid-cols-3">
             {selectedTag && onSelectTag ? (
-              <label className="flex flex-col gap-2 text-sm text-slate-300">
+              <label className="flex h-full flex-col gap-2 text-sm text-slate-300">
                 Player tag
                 <select
                   value={selectedTag}
                   onChange={(event) => onSelectTag(event.target.value)}
-                  className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+                  className="min-h-11 flex-1 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
                 >
                   {batchAnalysis.available_tags.map((tag) => (
                     <option key={tag} value={tag}>
@@ -796,66 +862,39 @@ const TrendDashboard = memo(function TrendDashboard({
                   ))}
                 </select>
               </label>
-            ) : (
-              <div className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm text-slate-300">
-                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                  Player assignment
-                </span>
-                <span className="text-sm text-white">
-                  Using saved replay ownership
-                </span>
-              </div>
-            )}
+            ) : null}
 
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
-              My character
-              <select
-                value={myCharacterFilter}
-                onChange={(event) => setMyCharacterFilter(event.target.value)}
-                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
-              >
-                <option value="all">All characters</option>
-                {availableMyCharacters.map((character) => (
-                  <option key={character} value={character}>
-                    {formatCharacterName(character)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <FilterMultiSelect
+              label="My character"
+              allLabel="All characters"
+              selectedValues={myCharacterFilter}
+              options={myCharacterOptions}
+              onChange={setMyCharacterFilter}
+            />
 
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
-              Opponent
-              <select
-                value={opponentCharacterFilter}
-                onChange={(event) =>
-                  setOpponentCharacterFilter(event.target.value)
-                }
-                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
-              >
-                <option value="all">All opponents</option>
-                {availableOpponentCharacters.map((character) => (
-                  <option key={character} value={character}>
-                    {formatCharacterName(character)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <FilterMultiSelect
+              label="Opponent character"
+              allLabel="All opponents"
+              selectedValues={opponentCharacterFilter}
+              options={opponentCharacterOptions}
+              onChange={setOpponentCharacterFilter}
+            />
 
-            <label className="flex flex-col gap-2 text-sm text-slate-300">
-              Stage
-              <select
-                value={stageFilter}
-                onChange={(event) => setStageFilter(event.target.value)}
-                className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
-              >
-                <option value="all">All stages</option>
-                {availableStages.map((stage) => (
-                  <option key={stage} value={stage}>
-                    {formatStageName(stage)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <FilterMultiSelect
+              label="Opponent tag/name"
+              allLabel="All opponent tags/names"
+              selectedValues={opponentIdentityFilter}
+              options={opponentIdentityOptions}
+              onChange={setOpponentIdentityFilter}
+            />
+
+            <FilterMultiSelect
+              label="Stage"
+              allLabel="All stages"
+              selectedValues={stageFilter}
+              options={stageOptions}
+              onChange={setStageFilter}
+            />
 
             <label className="flex flex-col gap-2 text-sm text-slate-300">
               Date from

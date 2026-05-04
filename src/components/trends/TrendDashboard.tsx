@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   averageBy,
@@ -399,6 +399,9 @@ const TrendDashboard = memo(function TrendDashboard({
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showAllMatches, setShowAllMatches] = useState(false);
+  const matchListRef = useRef<HTMLDivElement | null>(null);
+  const [matchListScrollTop, setMatchListScrollTop] = useState(0);
+  const [matchListHeight, setMatchListHeight] = useState(0);
 
   const allResolvedMatches = useMemo(
     () =>
@@ -626,6 +629,73 @@ const TrendDashboard = memo(function TrendDashboard({
     ? matches
     : matches.slice(0, matchDisplayLimit);
   const hiddenMatchCount = Math.max(0, matches.length - matchesToRender.length);
+  const virtualItemHeight = 240;
+  const virtualOverscan = 3;
+  const virtualWindow = useMemo(() => {
+    const total = matchesToRender.length;
+    if (!matchListHeight || total === 0) {
+      return {
+        start: 0,
+        end: total,
+        paddingTop: 0,
+        paddingBottom: 0,
+      };
+    }
+
+    const start = Math.max(
+      0,
+      Math.floor(matchListScrollTop / virtualItemHeight) - virtualOverscan,
+    );
+    const end = Math.min(
+      total,
+      Math.ceil((matchListScrollTop + matchListHeight) / virtualItemHeight) +
+        virtualOverscan,
+    );
+    return {
+      start,
+      end,
+      paddingTop: start * virtualItemHeight,
+      paddingBottom: (total - end) * virtualItemHeight,
+    };
+  }, [matchListHeight, matchListScrollTop, matchesToRender.length]);
+  const virtualizedMatches = useMemo(
+    () => matchesToRender.slice(virtualWindow.start, virtualWindow.end),
+    [matchesToRender, virtualWindow.end, virtualWindow.start],
+  );
+
+  useEffect(() => {
+    const container = matchListRef.current;
+    if (!container) {
+      return;
+    }
+
+    let frameId = 0;
+    const handleScroll = () => {
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+
+      frameId = requestAnimationFrame(() => {
+        setMatchListScrollTop(container.scrollTop);
+      });
+    };
+    const updateHeight = () => {
+      setMatchListHeight(container.clientHeight);
+    };
+
+    updateHeight();
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(container);
+
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      resizeObserver.disconnect();
+      if (frameId) {
+        cancelAnimationFrame(frameId);
+      }
+    };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -885,123 +955,137 @@ const TrendDashboard = memo(function TrendDashboard({
               ) : null}
             </div>
             <div className="rounded-2xl border border-slate-600 bg-slate-950/25 p-2">
-              <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-                {matchesToRender.map((match) => (
-                  <div
-                    key={match.replayId}
-                    className="rounded-xl border border-slate-600 bg-slate-900/35 p-3"
-                  >
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                      <div>
-                        <p className="text-sm font-semibold text-white">
-                          {match.filename}
-                        </p>
-                        <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                          <span className="inline-flex items-center gap-2">
-                            {formatCharacterName(match.character)} vs{" "}
-                            {formatCharacterName(match.opponentCharacter)}
+              <div
+                ref={matchListRef}
+                className="max-h-[28rem] overflow-y-auto pr-1"
+              >
+                <div
+                  className="space-y-2"
+                  style={{
+                    paddingTop: virtualWindow.paddingTop,
+                    paddingBottom: virtualWindow.paddingBottom,
+                  }}
+                >
+                  {virtualizedMatches.map((match) => (
+                    <div
+                      key={match.replayId}
+                      className="rounded-xl border border-slate-600 bg-slate-900/35 p-3"
+                    >
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-white">
+                            {match.filename}
+                          </p>
+                          <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                            <span className="inline-flex items-center gap-2">
+                              {formatCharacterName(match.character)} vs{" "}
+                              {formatCharacterName(match.opponentCharacter)}
+                            </span>
+                            {formatStageName(match.stage)
+                              ? ` • ${formatStageName(match.stage)}`
+                              : ""}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {`Session ${(sessionByReplayId.get(match.replayId) ?? 0) + 1} • `}
+                            Tracking{" "}
+                            {getPlayerIdentityLabel(match.trackedPlayer)}
+                            {match.opponentTag
+                              ? ` • Opponent ${match.opponentTag}`
+                              : ""}
+                            {formatReplayTime(match.startedAt)
+                              ? ` • ${formatReplayTime(match.startedAt)}`
+                              : ""}
+                          </p>
+                        </div>
+                        <span
+                          className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${
+                            match.didWin
+                              ? "bg-green-500/15 text-green-300"
+                              : "bg-slate-700 text-slate-300"
+                          }`}
+                        >
+                          {match.didWin ? "Win" : "Loss"}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-100">
+                          <CharacterIcon
+                            character={match.character}
+                            className="h-6 w-6"
+                          />
+                          <span>
+                            {getPlayerIdentityLabel(match.trackedPlayer)}
                           </span>
-                          {formatStageName(match.stage)
-                            ? ` • ${formatStageName(match.stage)}`
-                            : ""}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {`Session ${(sessionByReplayId.get(match.replayId) ?? 0) + 1} • `}
-                          Tracking {getPlayerIdentityLabel(match.trackedPlayer)}
-                          {match.opponentTag
-                            ? ` • Opponent ${match.opponentTag}`
-                            : ""}
-                          {formatReplayTime(match.startedAt)
-                            ? ` • ${formatReplayTime(match.startedAt)}`
-                            : ""}
-                        </p>
+                          <span className="text-slate-400">•</span>
+                          <span>
+                            {match.trackedPlayerStocksLeft ?? "N/A"} stocks
+                          </span>
+                        </div>
+                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-100">
+                          <CharacterIcon
+                            character={match.opponentCharacter}
+                            className="h-6 w-6"
+                          />
+                          <span>
+                            {match.opponent
+                              ? getPlayerIdentityLabel(match.opponent)
+                              : match.opponentTag}
+                          </span>
+                          <span className="text-slate-400">•</span>
+                          <span>
+                            {match.opponentStocksLeft ?? "N/A"} stocks
+                          </span>
+                        </div>
                       </div>
-                      <span
-                        className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${
-                          match.didWin
-                            ? "bg-green-500/15 text-green-300"
-                            : "bg-slate-700 text-slate-300"
-                        }`}
-                      >
-                        {match.didWin ? "Win" : "Loss"}
-                      </span>
-                    </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-100">
-                        <CharacterIcon
-                          character={match.character}
-                          className="h-6 w-6"
-                        />
-                        <span>
-                          {getPlayerIdentityLabel(match.trackedPlayer)}
-                        </span>
-                        <span className="text-slate-400">•</span>
-                        <span>
-                          {match.trackedPlayerStocksLeft ?? "N/A"} stocks
-                        </span>
-                      </div>
-                      <div className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs text-slate-100">
-                        <CharacterIcon
-                          character={match.opponentCharacter}
-                          className="h-6 w-6"
-                        />
-                        <span>
-                          {match.opponent
-                            ? getPlayerIdentityLabel(match.opponent)
-                            : match.opponentTag}
-                        </span>
-                        <span className="text-slate-400">•</span>
-                        <span>{match.opponentStocksLeft ?? "N/A"} stocks</span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 xl:grid-cols-5">
-                      <div className="rounded-lg bg-slate-800/70 p-2.5">
-                        <p className="text-slate-400">L-Cancel</p>
-                        <p className="mt-1 font-semibold text-white">
-                          {match.stats.l_cancel_rate}%
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800/70 p-2.5">
-                        <p className="text-slate-400">Successful Tech</p>
-                        <p className="mt-1 font-semibold text-white">
-                          {getTechSuccessRate(
-                            match.stats.tech_attempts,
-                            match.stats.missed_techs,
-                          )}
-                          %
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800/70 p-2.5">
-                        <p className="text-slate-400">Tech Direction</p>
-                        <p className="mt-1 font-semibold text-white">
-                          T {match.stats.tech_towards_count} • A{" "}
-                          {match.stats.tech_away_count} • IP{" "}
-                          {match.stats.tech_in_place_count}
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800/70 p-2.5">
-                        <p className="text-slate-400">Neutral Win</p>
-                        <p className="mt-1 font-semibold text-white">
-                          {match.stats.neutral_win_rate}%
-                        </p>
-                      </div>
-                      <div className="rounded-lg bg-slate-800/70 p-2.5">
-                        <p className="text-slate-400">Damage/Open</p>
-                        <p className="mt-1 font-semibold text-white">
-                          {match.stats.damage_per_opening}
-                        </p>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4 xl:grid-cols-5">
+                        <div className="rounded-lg bg-slate-800/70 p-2.5">
+                          <p className="text-slate-400">L-Cancel</p>
+                          <p className="mt-1 font-semibold text-white">
+                            {match.stats.l_cancel_rate}%
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-slate-800/70 p-2.5">
+                          <p className="text-slate-400">Successful Tech</p>
+                          <p className="mt-1 font-semibold text-white">
+                            {getTechSuccessRate(
+                              match.stats.tech_attempts,
+                              match.stats.missed_techs,
+                            )}
+                            %
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-slate-800/70 p-2.5">
+                          <p className="text-slate-400">Tech Direction</p>
+                          <p className="mt-1 font-semibold text-white">
+                            T {match.stats.tech_towards_count} • A{" "}
+                            {match.stats.tech_away_count} • IP{" "}
+                            {match.stats.tech_in_place_count}
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-slate-800/70 p-2.5">
+                          <p className="text-slate-400">Neutral Win</p>
+                          <p className="mt-1 font-semibold text-white">
+                            {match.stats.neutral_win_rate}%
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-slate-800/70 p-2.5">
+                          <p className="text-slate-400">Damage/Open</p>
+                          <p className="mt-1 font-semibold text-white">
+                            {match.stats.damage_per_opening}
+                          </p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-                {hiddenMatchCount > 0 ? (
-                  <div className="rounded-xl border border-dashed border-slate-600 bg-slate-900/20 p-3 text-center text-xs text-slate-400">
-                    {hiddenMatchCount} more replays hidden. Use "Show all" to
-                    render everything.
-                  </div>
-                ) : null}
+                  ))}
+                  {hiddenMatchCount > 0 ? (
+                    <div className="rounded-xl border border-dashed border-slate-600 bg-slate-900/20 p-3 text-center text-xs text-slate-400">
+                      {hiddenMatchCount} more replays hidden. Use "Show all" to
+                      render everything.
+                    </div>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>

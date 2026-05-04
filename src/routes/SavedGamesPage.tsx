@@ -394,132 +394,131 @@ export default function SavedGamesPage({
             </div>
           </div>
 
-          <div
-            className={activeTab === "trends" ? "grid gap-4 lg:gap-8" : "hidden"}
-            aria-hidden={activeTab !== "trends"}
-          >
-            {assignedGameCount > 0 ? (
-              <TrendDashboard
-                batchAnalysis={savedGamesBatchAnalysis}
-                heading="Saved Game Trends"
-                subtitle="Review your saved replay history using the player assignment stored with each game"
-                summaryLabel="Saved replays"
-                showAssignmentSection={false}
-              />
-            ) : (
-              <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
-                Assign yourself to at least one saved replay to unlock
-                aggregate trend filtering across online and console games.
-              </div>
-            )}
+          {activeTab === "trends" ? (
+            <div className="grid gap-4 lg:gap-8">
+              {assignedGameCount > 0 ? (
+                <TrendDashboard
+                  batchAnalysis={savedGamesBatchAnalysis}
+                  heading="Saved Game Trends"
+                  subtitle="Review your saved replay history using the player assignment stored with each game"
+                  summaryLabel="Saved replays"
+                  showAssignmentSection={false}
+                />
+              ) : (
+                <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
+                  Assign yourself to at least one saved replay to unlock
+                  aggregate trend filtering across online and console games.
+                </div>
+              )}
 
-            <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-600 bg-slate-900/35 p-4">
-              <div>
-                <p className="text-sm font-semibold text-white">
-                  Replay ownership
-                </p>
-                <p className="mt-1 text-sm text-slate-400">
-                  {assignedGameCount} of {savedGames.length} saved replay
-                  {savedGames.length === 1 ? "" : "s"} have a stored player
-                  assignment.
-                </p>
-                {assignmentMessage ? (
-                  <p className="mt-2 text-sm text-emerald-300">
-                    {assignmentMessage}
-                  </p>
-                ) : null}
-              </div>
-
-              <button
-                type="button"
-                onClick={openAssignmentEditor}
-                className="rounded-xl border border-purple-400/40 bg-purple-500/10 px-4 py-2.5 text-sm font-semibold text-purple-100 transition hover:bg-purple-500/20"
-              >
-                Change Assignments
-              </button>
-            </div>
-          </div>
-
-          <div
-            className={activeTab === "history" ? "grid gap-4 lg:gap-8" : "hidden"}
-            aria-hidden={activeTab !== "history"}
-          >
-            <div className="lg:hidden">
-              <button
-                type="button"
-                onClick={() => setIsHistoryOpen((open) => !open)}
-                className="flex w-full items-center justify-between rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-left shadow-2xl transition hover:border-cyan-400/60"
-                aria-expanded={isHistoryOpen}
-                aria-controls="saved-games-history"
-              >
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-slate-600 bg-slate-900/35 p-4">
                 <div>
-                  <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                    Game History
+                  <p className="text-sm font-semibold text-white">
+                    Replay ownership
                   </p>
-                  <p className="mt-1 text-xs text-slate-400">
-                    {savedGames.length} saved
-                    {selectedGame ? ` • Viewing ${selectedGame.filename}` : ""}
+                  <p className="mt-1 text-sm text-slate-400">
+                    {assignedGameCount} of {savedGames.length} saved replay
+                    {savedGames.length === 1 ? "" : "s"} have a stored player
+                    assignment.
                   </p>
+                  {assignmentMessage ? (
+                    <p className="mt-2 text-sm text-emerald-300">
+                      {assignmentMessage}
+                    </p>
+                  ) : null}
                 </div>
-                <span className="text-sm font-semibold text-white">
-                  {isHistoryOpen ? "Hide" : "Show"}
-                </span>
-              </button>
+
+                <button
+                  type="button"
+                  onClick={openAssignmentEditor}
+                  className="rounded-xl border border-purple-400/40 bg-purple-500/10 px-4 py-2.5 text-sm font-semibold text-purple-100 transition hover:bg-purple-500/20"
+                >
+                  Change Assignments
+                </button>
+              </div>
             </div>
+          ) : null}
 
-            <div className="grid gap-8 lg:grid-cols-[22rem_minmax(0,1fr)]">
-              <div
-                id="saved-games-history"
-                className={`${isHistoryOpen ? "block" : "hidden"} rounded-xl border border-slate-600 bg-slate-800 p-4 shadow-2xl lg:block lg:max-h-[70vh] lg:overflow-hidden`}
-              >
-                <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                    History
-                  </h3>
-                  <span className="text-xs text-slate-400">
-                    {savedGames.length} saved
+          {activeTab === "history" ? (
+            <div className="grid gap-4 lg:gap-8">
+              <div className="lg:hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsHistoryOpen((open) => !open)}
+                  className="flex w-full items-center justify-between rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-left shadow-2xl transition hover:border-cyan-400/60"
+                  aria-expanded={isHistoryOpen}
+                  aria-controls="saved-games-history"
+                >
+                  <div>
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                      Game History
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {savedGames.length} saved
+                      {selectedGame
+                        ? ` • Viewing ${selectedGame.filename}`
+                        : ""}
+                    </p>
+                  </div>
+                  <span className="text-sm font-semibold text-white">
+                    {isHistoryOpen ? "Hide" : "Show"}
                   </span>
-                </div>
-
-                <div className="grid gap-3 lg:max-h-[calc(70vh-3.5rem)] lg:overflow-y-auto lg:pr-1">
-                  {savedGames.map((game) => (
-                    <button
-                      key={game.id}
-                      type="button"
-                      onClick={() => {
-                        setSelectedGameId(game.id);
-                        setIsHistoryOpen(false);
-                      }}
-                      className={`rounded-2xl border p-4 text-left transition ${
-                        selectedGame?.id === game.id
-                          ? "border-cyan-400/70 bg-cyan-500/10"
-                          : "border-slate-600 bg-slate-900/35 hover:border-cyan-400/60 hover:bg-slate-900/55"
-                      }`}
-                    >
-                      <p className="text-sm font-semibold text-white">
-                        {game.filename}
-                      </p>
-                      <p className="mt-1 text-xs text-slate-400">
-                        {game.createdAt
-                          ? new Date(game.createdAt).toLocaleString()
-                          : "Saved just now"}
-                      </p>
-                      <p className="mt-2 text-xs text-cyan-300">
-                        {game.trackedPlayerAssignment
-                          ? `You: ${game.trackedPlayerAssignment.playerLabel}`
-                          : "Player assignment needed"}
-                      </p>
-                      <p className="mt-3 text-sm text-slate-300">
-                        {game.summary}
-                      </p>
-                    </button>
-                  ))}
-                </div>
+                </button>
               </div>
 
-              <div className="rounded-xl border border-green-500/20 bg-slate-800 p-8 shadow-2xl">
-                {selectedGame && selectedAnalysis ? (
-                  <div className="space-y-6">
+              <div className="grid gap-8 lg:grid-cols-[22rem_minmax(0,1fr)]">
+                <div
+                  id="saved-games-history"
+                  className={`${isHistoryOpen ? "block" : "hidden"} rounded-xl border border-slate-600 bg-slate-800 p-4 shadow-2xl lg:block lg:max-h-[70vh] lg:overflow-hidden`}
+                >
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                      History
+                    </h3>
+                    <span className="text-xs text-slate-400">
+                      {savedGames.length} saved
+                    </span>
+                  </div>
+
+                  <div className="grid gap-3 lg:max-h-[calc(70vh-3.5rem)] lg:overflow-y-auto lg:pr-1">
+                    {savedGames.map((game) => (
+                      <button
+                        key={game.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedGameId(game.id);
+                          setIsHistoryOpen(false);
+                        }}
+                        className={`rounded-2xl border p-4 text-left transition ${
+                          selectedGame?.id === game.id
+                            ? "border-cyan-400/70 bg-cyan-500/10"
+                            : "border-slate-600 bg-slate-900/35 hover:border-cyan-400/60 hover:bg-slate-900/55"
+                        }`}
+                      >
+                        <p className="text-sm font-semibold text-white">
+                          {game.filename}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {game.createdAt
+                            ? new Date(game.createdAt).toLocaleString()
+                            : "Saved just now"}
+                        </p>
+                        <p className="mt-2 text-xs text-cyan-300">
+                          {game.trackedPlayerAssignment
+                            ? `You: ${game.trackedPlayerAssignment.playerLabel}`
+                            : "Player assignment needed"}
+                        </p>
+                        <p className="mt-3 text-sm text-slate-300">
+                          {game.summary}
+                        </p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="rounded-xl border border-green-500/20 bg-slate-800 p-8 shadow-2xl">
+                  {selectedGame && selectedAnalysis ? (
+                    <div className="space-y-6">
                       <div className="flex flex-col gap-2">
                         <h2 className="text-2xl font-bold text-white">
                           {selectedGame.filename}
@@ -743,7 +742,8 @@ export default function SavedGamesPage({
                 </div>
               </div>
             </div>
-          </div>
+          ) : null}
+        </div>
       )}
 
       <ReplayOwnershipModal

@@ -398,6 +398,7 @@ const TrendDashboard = memo(function TrendDashboard({
   const [stageFilter, setStageFilter] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [showAllMatches, setShowAllMatches] = useState(false);
 
   const allResolvedMatches = useMemo(
     () =>
@@ -620,6 +621,12 @@ const TrendDashboard = memo(function TrendDashboard({
     );
   }, [matches]);
 
+  const matchDisplayLimit = 40;
+  const matchesToRender = showAllMatches
+    ? matches
+    : matches.slice(0, matchDisplayLimit);
+  const hiddenMatchCount = Math.max(0, matches.length - matchesToRender.length);
+
   return (
     <div className="space-y-6">
       <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
@@ -827,7 +834,10 @@ const TrendDashboard = memo(function TrendDashboard({
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            style={{ contentVisibility: "auto", containIntrinsicSize: "400px" }}
+          >
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               Trend Charts
             </p>
@@ -853,13 +863,30 @@ const TrendDashboard = memo(function TrendDashboard({
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div
+            className="space-y-3"
+            style={{ contentVisibility: "auto", containIntrinsicSize: "800px" }}
+          >
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               Matched Replays
             </p>
+            <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+              <p>
+                Showing {matchesToRender.length} of {matches.length} replays
+              </p>
+              {matches.length > matchDisplayLimit ? (
+                <button
+                  type="button"
+                  onClick={() => setShowAllMatches((current) => !current)}
+                  className="rounded-full border border-slate-600 bg-slate-800/80 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/80"
+                >
+                  {showAllMatches ? "Show fewer" : `Show all ${matches.length}`}
+                </button>
+              ) : null}
+            </div>
             <div className="rounded-2xl border border-slate-600 bg-slate-950/25 p-2">
               <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
-                {matches.map((match) => (
+                {matchesToRender.map((match) => (
                   <div
                     key={match.replayId}
                     className="rounded-xl border border-slate-600 bg-slate-900/35 p-3"
@@ -969,6 +996,12 @@ const TrendDashboard = memo(function TrendDashboard({
                     </div>
                   </div>
                 ))}
+                {hiddenMatchCount > 0 ? (
+                  <div className="rounded-xl border border-dashed border-slate-600 bg-slate-900/20 p-3 text-center text-xs text-slate-400">
+                    {hiddenMatchCount} more replays hidden. Use "Show all" to
+                    render everything.
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 export type MultiSelectOption = {
   value: string;
@@ -69,7 +69,54 @@ export default function FilterMultiSelect({
     };
   }, [isOpen]);
 
-  const summary = getMultiSelectSummary(selectedValues, options, allLabel);
+  const summary = useMemo(
+    () => getMultiSelectSummary(selectedValues, options, allLabel),
+    [selectedValues, options, allLabel],
+  );
+  const selectedValueSet = useMemo(
+    () => new Set(selectedValues),
+    [selectedValues],
+  );
+  const optionRows = useMemo(
+    () =>
+      options.map((option) => {
+        const isSelected = selectedValueSet.has(option.value);
+
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => {
+              if (isSelected) {
+                onChange(
+                  selectedValues.filter((value) => value !== option.value),
+                );
+                return;
+              }
+
+              onChange([...selectedValues, option.value]);
+            }}
+            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
+              isSelected
+                ? "bg-purple-500/15 text-purple-100"
+                : "text-slate-200 hover:bg-slate-800"
+            }`}
+          >
+            <span className="min-w-0 truncate">{option.label}</span>
+            <span
+              className={`ml-3 inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs ${
+                isSelected
+                  ? "border-purple-300 bg-purple-400/20 text-purple-100"
+                  : "border-slate-500 text-slate-500"
+              }`}
+            >
+              {isSelected ? "✓" : ""}
+            </span>
+          </button>
+        );
+      }),
+    [onChange, options, selectedValueSet, selectedValues],
+  );
 
   return (
     <div className="relative h-full" ref={containerRef}>
@@ -88,7 +135,7 @@ export default function FilterMultiSelect({
       </div>
 
       {isOpen ? (
-        <div className="absolute left-0 top-[calc(100%+0.65rem)] z-20 w-full min-w-[15rem] rounded-2xl border border-slate-600 bg-slate-900/95 p-3 shadow-2xl shadow-black/40 backdrop-blur">
+        <div className="absolute left-0 top-[calc(100%+0.65rem)] z-20 w-full min-w-[15rem] rounded-2xl border border-slate-600 bg-slate-900/95 p-3 shadow-xl shadow-black/30">
           <div className="mb-2 border-b border-slate-700/80 pb-2">
             <button
               type="button"
@@ -109,42 +156,7 @@ export default function FilterMultiSelect({
           </div>
 
           <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
-            {options.map((option) => {
-              const isSelected = selectedValues.includes(option.value);
-
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    if (isSelected) {
-                      onChange(
-                        selectedValues.filter((value) => value !== option.value),
-                      );
-                      return;
-                    }
-
-                    onChange([...selectedValues, option.value]);
-                  }}
-                  className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition ${
-                    isSelected
-                      ? "bg-purple-500/15 text-purple-100"
-                      : "text-slate-200 hover:bg-slate-800"
-                  }`}
-                >
-                  <span className="min-w-0 truncate">{option.label}</span>
-                  <span
-                    className={`ml-3 inline-flex h-5 w-5 items-center justify-center rounded-full border text-xs ${
-                      isSelected
-                        ? "border-purple-300 bg-purple-400/20 text-purple-100"
-                        : "border-slate-500 text-slate-500"
-                    }`}
-                  >
-                    {isSelected ? "✓" : ""}
-                  </span>
-                </button>
-              );
-            })}
+            {optionRows}
           </div>
         </div>
       ) : null}

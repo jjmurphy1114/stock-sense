@@ -47,6 +47,9 @@ const metricConfig: Array<{
   color: string;
   suffix?: string;
   unitLabel?: string;
+  minValue?: number;
+  maxValue?: number;
+  horizontalLineValue?: number;
 }> = [
   {
     key: "l_cancel_rate",
@@ -55,6 +58,8 @@ const metricConfig: Array<{
     color: "#a78bfa",
     suffix: "%",
     unitLabel: "percent",
+    minValue: 0,
+    maxValue: 100,
   },
   {
     key: "tech_miss_rate",
@@ -63,6 +68,8 @@ const metricConfig: Array<{
     color: "#f97316",
     suffix: "%",
     unitLabel: "percent",
+    minValue: 0,
+    maxValue: 100,
   },
   {
     key: "neutral_win_rate",
@@ -71,6 +78,9 @@ const metricConfig: Array<{
     color: "#34d399",
     suffix: "%",
     unitLabel: "percent",
+    minValue: 0,
+    maxValue: 100,
+    horizontalLineValue: 50,
   },
   {
     key: "damage_per_opening",
@@ -79,6 +89,8 @@ const metricConfig: Array<{
     color: "#fbbf24",
     suffix: " dmg",
     unitLabel: "damage",
+    minValue: 0,
+    maxValue: 50,
   },
   {
     key: "actions_per_minute",
@@ -87,6 +99,8 @@ const metricConfig: Array<{
     color: "#38bdf8",
     suffix: " APM",
     unitLabel: "APM",
+    minValue: 100,
+    maxValue: 500,
   },
   {
     key: "stocks_remaining",
@@ -95,6 +109,8 @@ const metricConfig: Array<{
     color: "#f472b6",
     suffix: " stocks",
     unitLabel: "stocks",
+    minValue: 0,
+    maxValue: 4,
   },
 ];
 
@@ -927,6 +943,9 @@ const TrendDashboard = memo(function TrendDashboard({
                   label={metric.label}
                   description={metric.description}
                   color={metric.color}
+                  minValue={metric.minValue}
+                  maxValue={metric.maxValue}
+                  horizontalLineValue={metric.horizontalLineValue}
                   suffix={metric.suffix}
                 />
               ))}

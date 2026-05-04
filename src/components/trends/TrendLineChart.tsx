@@ -27,7 +27,10 @@ function formatMetricValue(value: number, suffix = "") {
   return `${roundValue(value)}${suffix}`;
 }
 
-function getTrendMetricValue(match: TrendChartMatch, metricKey: TrendMetricKey) {
+function getTrendMetricValue(
+  match: TrendChartMatch,
+  metricKey: TrendMetricKey,
+) {
   if (metricKey === "tech_miss_rate") {
     if (!match.stats.tech_attempts) {
       return 0;
@@ -72,6 +75,9 @@ export default function TrendLineChart({
   label,
   description,
   color,
+  minValue,
+  maxValue,
+  horizontalLineValue,
   suffix = "",
 }: {
   matches: TrendChartMatch[];
@@ -80,6 +86,9 @@ export default function TrendLineChart({
   label: string;
   description: string;
   color: string;
+  minValue?: number;
+  maxValue?: number;
+  horizontalLineValue?: number;
   suffix?: string;
 }) {
   if (matches.length === 0) {
@@ -91,10 +100,24 @@ export default function TrendLineChart({
   const paddingX = 24;
   const paddingY = 20;
   const values = matches.map((match) => getTrendMetricValue(match, metricKey));
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const valueRange = maxValue - minValue || 1;
-  const yAxisTicks = [maxValue, minValue + valueRange / 2, minValue];
+  const rawMinValue = Math.min(...values);
+  const rawMaxValue = Math.max(...values);
+  const displayMin = typeof minValue === "number" ? minValue : rawMinValue;
+  const displayMax = typeof maxValue === "number" ? maxValue : rawMaxValue;
+  const normalizedMin = Math.min(displayMin, displayMax);
+  const normalizedMax = Math.max(displayMin, displayMax);
+  const valueRange = normalizedMax - normalizedMin || 1;
+  const normalizedGuideValue =
+    typeof horizontalLineValue === "number"
+      ? Math.min(normalizedMax, Math.max(normalizedMin, horizontalLineValue))
+      : null;
+  const averageValue =
+    values.reduce((total, value) => total + value, 0) / values.length;
+  const yAxisTicks = [
+    normalizedMax,
+    normalizedMin + valueRange / 2,
+    normalizedMin,
+  ];
   const dividerXs = sessionIndices
     .map((_, index) => ({ index }))
     .filter(
@@ -116,7 +139,7 @@ export default function TrendLineChart({
       const y =
         height -
         paddingY -
-        ((value - minValue) / valueRange) * (height - paddingY * 2);
+        ((value - normalizedMin) / valueRange) * (height - paddingY * 2);
       return `${x},${y}`;
     })
     .join(" ");
@@ -129,8 +152,9 @@ export default function TrendLineChart({
           <p className="mt-1 text-xs text-slate-400">{description}</p>
         </div>
         <div className="text-right text-xs text-slate-400">
-          <p>High {formatMetricValue(maxValue, suffix)}</p>
-          <p>Low {formatMetricValue(minValue, suffix)}</p>
+          <p>High {formatMetricValue(rawMaxValue, suffix)}</p>
+          <p>Low {formatMetricValue(rawMinValue, suffix)}</p>
+          <p>Avg {formatMetricValue(averageValue, suffix)}</p>
         </div>
       </div>
 
@@ -168,7 +192,8 @@ export default function TrendLineChart({
           const y =
             height -
             paddingY -
-            ((tickValue - minValue) / valueRange) * (height - paddingY * 2);
+            ((tickValue - normalizedMin) / valueRange) *
+              (height - paddingY * 2);
 
           return (
             <g key={`${label}-tick-${tickValue}`}>
@@ -192,6 +217,28 @@ export default function TrendLineChart({
             </g>
           );
         })}
+        {normalizedGuideValue !== null ? (
+          <line
+            x1={paddingX}
+            y1={
+              height -
+              paddingY -
+              ((normalizedGuideValue - normalizedMin) / valueRange) *
+                (height - paddingY * 2)
+            }
+            x2={width - paddingX}
+            y2={
+              height -
+              paddingY -
+              ((normalizedGuideValue - normalizedMin) / valueRange) *
+                (height - paddingY * 2)
+            }
+            stroke="#facc15"
+            strokeDasharray="6 4"
+            strokeWidth="1"
+            opacity="0.75"
+          />
+        ) : null}
         <text
           x={width / 2}
           y={height - 4}
@@ -218,7 +265,7 @@ export default function TrendLineChart({
           const y =
             height -
             paddingY -
-            ((value - minValue) / valueRange) * (height - paddingY * 2);
+            ((value - normalizedMin) / valueRange) * (height - paddingY * 2);
 
           return (
             <g key={`${label}-${matches[index].replayId}`}>

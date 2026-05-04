@@ -6,7 +6,13 @@ import {
   getPlayerFeedbackGroups,
   getTechSuccessRate,
 } from "../lib/replayAnalysisUi";
-import { buildReplayDocumentId, loadSavedReplayIds, saveBatchGameAnalyses, saveSingleGameAnalysis, type SaveGameResult } from "../lib/gameHistory";
+import {
+  buildReplayDocumentId,
+  loadSavedReplayIds,
+  saveBatchGameAnalyses,
+  saveSingleGameAnalysis,
+  type SaveGameResult,
+} from "../lib/gameHistory";
 import {
   buildTrackedPlayerAssignment,
   findAutoTrackedPlayer,
@@ -184,6 +190,7 @@ type PendingAssignmentState = {
   filesToAnalyze: File[];
   uploadSource: "single" | "folder";
   skippedDuplicateNames: string[];
+  duplicateReplayIds: string[];
   precheckWarnings: string[];
   saving: boolean;
   error: string | null;
@@ -340,11 +347,14 @@ export default function ReplayAnalyzer({
     const payload = (await response.json()) as unknown;
 
     if (!response.ok) {
-      const errorPayload = payload as { detail?: { message?: string } | string };
+      const errorPayload = payload as {
+        detail?: { message?: string } | string;
+      };
       const detail =
         typeof errorPayload.detail === "string"
           ? errorPayload.detail
-          : errorPayload.detail?.message || "Failed to identify uploaded replays";
+          : errorPayload.detail?.message ||
+            "Failed to identify uploaded replays";
       throw new Error(detail);
     }
 
@@ -375,14 +385,18 @@ export default function ReplayAnalyzer({
   };
 
   const getBatchSaveMessage = (results: SaveGameResult[]) => {
-    const savedCount = results.filter((result) => result.status === "saved").length;
+    const savedCount = results.filter(
+      (result) => result.status === "saved",
+    ).length;
     const duplicateCount = results.filter(
       (result) => result.status === "duplicate",
     ).length;
     const parts = [];
 
     if (savedCount > 0) {
-      parts.push(`Saved ${savedCount} game record${savedCount === 1 ? "" : "s"}.`);
+      parts.push(
+        `Saved ${savedCount} game record${savedCount === 1 ? "" : "s"}.`,
+      );
     }
     if (duplicateCount > 0) {
       parts.push(
@@ -399,15 +413,28 @@ export default function ReplayAnalyzer({
     batchData: BatchAnalysisResponse | null,
     uploadedFileNames: string[],
     trackedAssignments?: TrackedAssignmentsLookup,
+    duplicateReplayIds?: string[],
   ) => {
     if (!currentUser) {
       setSaveMessage("Analysis ready. Sign in with Google to save uploads.");
       return;
     }
 
+    const duplicateReplayIdSet = new Set(duplicateReplayIds ?? []);
+
     if (isBatchUpload && batchData) {
-      const replaysToSave = batchData.replays.map((replay) => {
+      const duplicateResults: SaveGameResult[] = [];
+      const replaysToSave = batchData.replays.flatMap((replay) => {
         const replayId = buildReplayDocumentId(replay);
+        if (duplicateReplayIdSet.has(replayId)) {
+          duplicateResults.push({
+            status: "duplicate",
+            replayId,
+            filename: replay.filename,
+          });
+          return [];
+        }
+
         const autoTrackedPlayer = findAutoTrackedPlayer(
           replay,
           profile?.slippiGamertag ?? "",
@@ -416,20 +443,30 @@ export default function ReplayAnalyzer({
           trackedAssignments?.byReplayId?.[replayId] ??
           trackedAssignments?.byFilename?.[replay.filename] ??
           (autoTrackedPlayer
-            ? buildTrackedPlayerAssignment(autoTrackedPlayer, "profile_slippi_tag")
+            ? buildTrackedPlayerAssignment(
+                autoTrackedPlayer,
+                "profile_slippi_tag",
+              )
             : null);
 
         if (!trackedPlayerAssignment) {
-          throw new Error(`Missing tracked player assignment for ${replay.filename}.`);
+          throw new Error(
+            `Missing tracked player assignment for ${replay.filename}.`,
+          );
         }
 
-        return {
-          ...replay,
-          trackedPlayerAssignment,
-        };
+        return [
+          {
+            ...replay,
+            trackedPlayerAssignment,
+          },
+        ];
       });
 
-      const results = await saveBatchGameAnalyses(currentUser.uid, replaysToSave);
+      const saveResults = replaysToSave.length
+        ? await saveBatchGameAnalyses(currentUser.uid, replaysToSave)
+        : [];
+      const results = [...saveResults, ...duplicateResults];
       await onSavedGamesChanged?.();
       setSaveMessage(getBatchSaveMessage(results));
       return;
@@ -437,6 +474,16 @@ export default function ReplayAnalyzer({
 
     if (singleAnalysis && uploadedFileNames[0]) {
       const replayId = buildReplayDocumentId(singleAnalysis);
+      if (duplicateReplayIdSet.has(replayId)) {
+        setSaveMessage(
+          getSingleSaveMessage({
+            status: "duplicate",
+            replayId,
+            filename: uploadedFileNames[0],
+          }),
+        );
+        return;
+      }
       const autoTrackedPlayer = findAutoTrackedPlayer(
         singleAnalysis,
         profile?.slippiGamertag ?? "",
@@ -445,7 +492,10 @@ export default function ReplayAnalyzer({
         trackedAssignments?.byReplayId?.[replayId] ??
         trackedAssignments?.byFilename?.[uploadedFileNames[0]] ??
         (autoTrackedPlayer
-          ? buildTrackedPlayerAssignment(autoTrackedPlayer, "profile_slippi_tag")
+          ? buildTrackedPlayerAssignment(
+              autoTrackedPlayer,
+              "profile_slippi_tag",
+            )
           : null);
 
       if (!trackedPlayerAssignment) {
@@ -469,12 +519,14 @@ export default function ReplayAnalyzer({
     skippedDuplicateNames,
     precheckWarnings,
     trackedAssignments,
+    duplicateReplayIds,
   }: {
     filesToAnalyze: File[];
     uploadSource: "single" | "folder";
     skippedDuplicateNames: string[];
     precheckWarnings: string[];
     trackedAssignments?: TrackedAssignmentsLookup;
+    duplicateReplayIds?: string[];
   }) => {
     const isBatchUpload =
       nextUploadSource === "folder" || filesToAnalyze.length > 1;
@@ -539,6 +591,7 @@ export default function ReplayAnalyzer({
           data,
           uploadedFileNames,
           trackedAssignments,
+          duplicateReplayIds,
         );
         if (skippedDuplicateNames.length > 0) {
           setSaveMessage((currentMessage) => {
@@ -564,6 +617,7 @@ export default function ReplayAnalyzer({
           null,
           uploadedFileNames,
           trackedAssignments,
+          duplicateReplayIds,
         );
         if (skippedDuplicateNames.length > 0) {
           setSaveMessage((currentMessage) => {
@@ -593,7 +647,9 @@ export default function ReplayAnalyzer({
       clearPickerValues();
     } catch (uploadError) {
       setError(
-        uploadError instanceof Error ? uploadError.message : "An error occurred",
+        uploadError instanceof Error
+          ? uploadError.message
+          : "An error occurred",
       );
     } finally {
       setUploadProgress(null);
@@ -666,6 +722,7 @@ export default function ReplayAnalyzer({
         uploadSource: pendingState.uploadSource,
         skippedDuplicateNames: pendingState.skippedDuplicateNames,
         precheckWarnings: pendingState.precheckWarnings,
+        duplicateReplayIds: pendingState.duplicateReplayIds,
         trackedAssignments: {
           byReplayId,
           byFilename,
@@ -711,6 +768,7 @@ export default function ReplayAnalyzer({
       const precheckWarnings: string[] = [];
       let replayIdentityData: ReplayIdentityResponse | null = null;
       const duplicateIndexes = new Set<number>();
+      const duplicateReplayIds: string[] = [];
 
       if (currentUser) {
         try {
@@ -719,15 +777,16 @@ export default function ReplayAnalyzer({
             precheckWarnings.push(`${file.filename}: ${file.error}`);
           });
 
-          if (skipDuplicates) {
-            const savedReplayIds = await loadSavedReplayIds(currentUser.uid);
-            replayIdentityData.replays.forEach((replay) => {
-              if (savedReplayIds.has(replay.replay_id)) {
+          const savedReplayIds = await loadSavedReplayIds(currentUser.uid);
+          replayIdentityData.replays.forEach((replay) => {
+            if (savedReplayIds.has(replay.replay_id)) {
+              duplicateReplayIds.push(replay.replay_id);
+              if (skipDuplicates) {
                 duplicateIndexes.add(replay.index);
                 skippedDuplicateNames.push(replay.filename);
               }
-            });
-          }
+            }
+          });
         } catch (precheckError) {
           precheckWarnings.push(
             precheckError instanceof Error
@@ -804,6 +863,7 @@ export default function ReplayAnalyzer({
             uploadSource,
             skippedDuplicateNames,
             precheckWarnings,
+            duplicateReplayIds,
             saving: false,
             error: null,
           });
@@ -816,7 +876,9 @@ export default function ReplayAnalyzer({
         const byReplayId = Object.fromEntries(
           pendingReplays
             .filter(
-              (replay): replay is PendingAssignmentReplay & {
+              (
+                replay,
+              ): replay is PendingAssignmentReplay & {
                 suggestedAssignment: TrackedPlayerAssignment;
               } => replay.suggestedAssignment != null,
             )
@@ -825,7 +887,9 @@ export default function ReplayAnalyzer({
         const byFilename = Object.fromEntries(
           pendingReplays
             .filter(
-              (replay): replay is PendingAssignmentReplay & {
+              (
+                replay,
+              ): replay is PendingAssignmentReplay & {
                 suggestedAssignment: TrackedPlayerAssignment;
               } => replay.suggestedAssignment != null,
             )
@@ -837,6 +901,7 @@ export default function ReplayAnalyzer({
           uploadSource,
           skippedDuplicateNames,
           precheckWarnings,
+          duplicateReplayIds,
           trackedAssignments: {
             byReplayId,
             byFilename,
@@ -850,6 +915,7 @@ export default function ReplayAnalyzer({
         uploadSource,
         skippedDuplicateNames,
         precheckWarnings,
+        duplicateReplayIds,
       });
       return;
     } catch (err) {
@@ -1010,7 +1076,9 @@ export default function ReplayAnalyzer({
                       <input
                         type="checkbox"
                         checked={skipDuplicates}
-                        onChange={(event) => setSkipDuplicates(event.target.checked)}
+                        onChange={(event) =>
+                          setSkipDuplicates(event.target.checked)
+                        }
                         disabled={loading || !currentUser}
                         className="peer sr-only"
                       />
@@ -1079,7 +1147,8 @@ export default function ReplayAnalyzer({
                   </div>
                 )}
 
-                {(selectedFiles.length > 0 || (!analysis && !batchAnalysis)) && (
+                {(selectedFiles.length > 0 ||
+                  (!analysis && !batchAnalysis)) && (
                   <button
                     type="submit"
                     disabled={selectedFiles.length === 0 || loading}
@@ -1461,8 +1530,8 @@ export default function ReplayAnalyzer({
                 </h3>
                 <p className="mt-2 text-sm text-slate-300">
                   Online replays auto-use your saved Slippi tag when possible.
-                  Anything unresolved, including console replays, can be set here
-                  before saving.
+                  Anything unresolved, including console replays, can be set
+                  here before saving.
                 </p>
               </div>
 
@@ -1509,7 +1578,10 @@ export default function ReplayAnalyzer({
                         >
                           <option value="">Select player</option>
                           {commonAssignablePlayerIndices.map((playerIndex) => (
-                            <option key={`apply-all-${playerIndex}`} value={playerIndex}>
+                            <option
+                              key={`apply-all-${playerIndex}`}
+                              value={playerIndex}
+                            >
                               Player {playerIndex + 1}
                             </option>
                           ))}
@@ -1566,7 +1638,9 @@ export default function ReplayAnalyzer({
                     <label className="flex w-full flex-col gap-2 text-sm text-slate-300 lg:w-80">
                       I was this player
                       <select
-                        value={pendingAssignmentState.values[replay.replayId] ?? ""}
+                        value={
+                          pendingAssignmentState.values[replay.replayId] ?? ""
+                        }
                         onChange={(event) =>
                           setPendingAssignmentState((current) =>
                             current
@@ -1589,7 +1663,8 @@ export default function ReplayAnalyzer({
                             key={`${replay.replayId}-${player.player_index}`}
                             value={player.player_index}
                           >
-                            {getPlayerAssignmentLabel(player)} • {formatCharacterName(player.character)}
+                            {getPlayerAssignmentLabel(player)} •{" "}
+                            {formatCharacterName(player.character)}
                           </option>
                         ))}
                       </select>

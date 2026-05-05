@@ -774,9 +774,20 @@ export default function SavedGamesPage({
                     <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
                       History
                     </h3>
-                    <span className="text-xs text-slate-400">
-                      {filteredHistoryGames.length} shown
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400">
+                        {filteredHistoryGames.length} shown
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsHistoryOpen(false)}
+                        className="rounded-lg border border-slate-600 bg-slate-900/40 px-2.5 py-1 text-xs font-semibold text-white transition hover:border-cyan-400/60 lg:hidden"
+                        aria-expanded={isHistoryOpen}
+                        aria-controls="saved-games-history"
+                      >
+                        Hide
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid min-w-0 gap-3 lg:max-h-[calc(70vh-3.5rem)] lg:overflow-y-auto lg:pr-1">
@@ -833,8 +844,10 @@ export default function SavedGamesPage({
 
                           <button
                             type="button"
-                            onClick={() => setIsHistoryOpen((open) => !open)}
-                            className="mt-4 flex w-full items-center justify-between rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-left transition hover:border-cyan-400/60"
+                            onClick={() => setIsHistoryOpen(true)}
+                            className={`mt-4 w-full items-center justify-between rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-left transition hover:border-cyan-400/60 ${
+                              isHistoryOpen ? "hidden" : "flex"
+                            }`}
                             aria-expanded={isHistoryOpen}
                             aria-controls="saved-games-history"
                           >
@@ -848,7 +861,7 @@ export default function SavedGamesPage({
                               </p>
                             </div>
                             <span className="text-sm font-semibold text-white">
-                              {isHistoryOpen ? "Hide" : "Show"}
+                              Show
                             </span>
                           </button>
                         </div>

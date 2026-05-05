@@ -197,6 +197,7 @@ function getTrendMatches(
   opponentCharacterFilter: string[],
   stageFilter: string[],
   opponentIdentityFilter: string[],
+  resultFilter: string[],
   dateFrom: string,
   dateTo: string,
 ) {
@@ -276,6 +277,13 @@ function getTrendMatches(
       !opponentIdentityFilter.includes(match.opponentIdentity)
     ) {
       return;
+    }
+
+    if (resultFilter.length > 0) {
+      const resultLabel = match.didWin ? "win" : "loss";
+      if (!resultFilter.includes(resultLabel)) {
+        return;
+      }
     }
 
     const replayDate = getReplayDateKey(match.startedAt);
@@ -412,6 +420,7 @@ const TrendDashboard = memo(function TrendDashboard({
     string[]
   >([]);
   const [stageFilter, setStageFilter] = useState<string[]>([]);
+  const [resultFilter, setResultFilter] = useState<string[]>([]);
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showAllMatches, setShowAllMatches] = useState(false);
@@ -425,6 +434,7 @@ const TrendDashboard = memo(function TrendDashboard({
         batchAnalysis,
         selectedTag,
         replayOverrides,
+        [],
         [],
         [],
         [],
@@ -444,6 +454,7 @@ const TrendDashboard = memo(function TrendDashboard({
         opponentCharacterFilter,
         stageFilter,
         opponentIdentityFilter,
+        resultFilter,
         dateFrom,
         dateTo,
       ),
@@ -455,6 +466,7 @@ const TrendDashboard = memo(function TrendDashboard({
       opponentCharacterFilter,
       stageFilter,
       opponentIdentityFilter,
+      resultFilter,
       dateFrom,
       dateTo,
     ],
@@ -526,6 +538,13 @@ const TrendDashboard = memo(function TrendDashboard({
         label: identity,
       })),
     [availableOpponentIdentities],
+  );
+  const resultOptions = useMemo(
+    () => [
+      { value: "win", label: "Wins" },
+      { value: "loss", label: "Losses" },
+    ],
+    [],
   );
   const overrideCount = Object.values(replayOverrides).filter(
     (value) => value !== "auto",
@@ -714,10 +733,10 @@ const TrendDashboard = memo(function TrendDashboard({
   }, []);
 
   return (
-    <div className="space-y-6">
-      <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-          <div>
+    <div className="min-w-0 space-y-6">
+      <div className="min-w-0 rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
+        <div className="flex min-w-0 flex-col items-center gap-4 text-center">
+          <div className="max-w-2xl">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               {heading}
             </p>
@@ -730,7 +749,7 @@ const TrendDashboard = memo(function TrendDashboard({
             </p>
           </div>
 
-          <div className="grid w-full grid-cols-2 gap-3 xl:grid-cols-3">
+          <div className="grid min-w-0 w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {selectedTag && onSelectTag ? (
               <label className="flex h-full flex-col gap-2 text-sm text-slate-300">
                 Player tag
@@ -773,6 +792,14 @@ const TrendDashboard = memo(function TrendDashboard({
             />
 
             <FilterMultiSelect
+              label="Result"
+              allLabel="All results"
+              selectedValues={resultFilter}
+              options={resultOptions}
+              onChange={setResultFilter}
+            />
+
+            <FilterMultiSelect
               label="Stage"
               allLabel="All stages"
               selectedValues={stageFilter}
@@ -804,7 +831,7 @@ const TrendDashboard = memo(function TrendDashboard({
       </div>
 
       {showAssignmentSection ? (
-        <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
+        <div className="min-w-0 rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
@@ -861,7 +888,7 @@ const TrendDashboard = memo(function TrendDashboard({
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
             <StatTile
               label="Replays matched"
               value={`${matches.length}`}
@@ -902,7 +929,7 @@ const TrendDashboard = memo(function TrendDashboard({
             />
           </div>
 
-          <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
+          <div className="min-w-0 rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               Character Usage
             </p>
@@ -910,20 +937,19 @@ const TrendDashboard = memo(function TrendDashboard({
               {characterCounts.map(([character, count]) => (
                 <div
                   key={character}
-                  className="inline-flex items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-4 py-2 text-sm text-slate-200"
+                  className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-600 bg-slate-800/80 px-4 py-2 text-sm text-slate-200"
                 >
                   <CharacterIcon character={character} className="h-6 w-6" />
-                  {formatCharacterName(character)} • {count} replay
-                  {count === 1 ? "" : "s"}
+                  <span className="break-words">
+                    {formatCharacterName(character)} • {count} replay
+                    {count === 1 ? "" : "s"}
+                  </span>
                 </div>
               ))}
             </div>
           </div>
 
-          <div
-            className="space-y-3"
-            style={{ contentVisibility: "auto", containIntrinsicSize: "400px" }}
-          >
+          <div className="min-w-0 space-y-3">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               Trend Charts
             </p>
@@ -933,7 +959,7 @@ const TrendDashboard = memo(function TrendDashboard({
                 consecutive games.
               </p>
             </div>
-            <div className="grid gap-4 lg:grid-cols-2">
+            <div className="grid min-w-0 gap-4 lg:grid-cols-2">
               {metricConfig.map((metric) => (
                 <TrendLineChart
                   key={metric.key}
@@ -952,10 +978,7 @@ const TrendDashboard = memo(function TrendDashboard({
             </div>
           </div>
 
-          <div
-            className="space-y-3"
-            style={{ contentVisibility: "auto", containIntrinsicSize: "800px" }}
-          >
+          <div className="min-w-0 space-y-3">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
               Matched Replays
             </p>

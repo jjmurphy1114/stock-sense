@@ -15,9 +15,11 @@ import {
 import CharacterIcon from "../components/replays/CharacterIcon";
 import ReplayOwnershipModal from "../components/replays/ReplayOwnershipModal";
 import StatTile from "../components/replays/StatTile";
+import FilterMultiSelect from "../components/trends/FilterMultiSelect";
 import TrendDashboard from "../components/trends/TrendDashboard";
 import type {
   AnalysisResponse,
+  AnalysisMetadataPlayer,
   BatchAnalysisResponse,
   PerPlayerStats,
   PersistedAnalysisResponse,
@@ -43,6 +45,33 @@ function expandPersistedAnalysis(
       hit_locations: [],
     },
   };
+}
+
+function getPlayerIdentityLabel(player: AnalysisMetadataPlayer) {
+  const pieces = [
+    player.connect_code,
+    player.netplay_name,
+    player.name_tag,
+  ].filter(Boolean);
+
+  if (pieces.length === 0) {
+    return player.tag || `Player ${player.player_index + 1}`;
+  }
+
+  return pieces.join(" • ");
+}
+
+function getHistoryDateKey(value?: string | null) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "";
+  }
+
+  return date.toISOString().split("T")[0] ?? "";
 }
 
 function SavedPerPlayerCard({ player }: { player: PerPlayerStats }) {
@@ -152,6 +181,17 @@ export default function SavedGamesPage({
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(
     null,
   );
+  const [historyMyCharacterFilter, setHistoryMyCharacterFilter] = useState<
+    string[]
+  >([]);
+  const [historyOpponentCharacterFilter, setHistoryOpponentCharacterFilter] =
+    useState<string[]>([]);
+  const [historyOpponentIdentityFilter, setHistoryOpponentIdentityFilter] =
+    useState<string[]>([]);
+  const [historyStageFilter, setHistoryStageFilter] = useState<string[]>([]);
+  const [historyResultFilter, setHistoryResultFilter] = useState<string[]>([]);
+  const [historyDateFrom, setHistoryDateFrom] = useState("");
+  const [historyDateTo, setHistoryDateTo] = useState("");
 
   useEffect(() => {
     if (!currentUser) {
@@ -221,10 +261,198 @@ export default function SavedGamesPage({
     };
   }, [savedGames]);
 
-  const selectedGame =
-    savedGames.find((game) => game.id === selectedGameId) ??
-    savedGames[0] ??
+  const historyMatches = useMemo(
+    () =>
+      savedGames.map((game) => {
+        const metadata = game.analysis.metadata;
+        const players = metadata?.players ?? [];
+        const trackedPlayer = game.trackedPlayerAssignment
+          ? (players.find(
+              (player) =>
+                player.player_index ===
+                game.trackedPlayerAssignment?.playerIndex,
+            ) ?? null)
+          : null;
+        const opponent = trackedPlayer
+          ? (players.find(
+              (player) =>
+                player.player_index !== trackedPlayer.player_index &&
+                !player.is_cpu,
+            ) ??
+            players.find(
+              (player) => player.player_index !== trackedPlayer.player_index,
+            ) ??
+            null)
+          : null;
+
+        return {
+          game,
+          trackedPlayer,
+          opponent,
+          opponentIdentity: opponent ? getPlayerIdentityLabel(opponent) : "",
+          stage: metadata?.stage ?? game.stage ?? "Unknown",
+          startedAt:
+            metadata?.started_at ?? game.startedAt ?? game.createdAt ?? null,
+          didWin: trackedPlayer ? trackedPlayer.did_win : null,
+        };
+      }),
+    [savedGames],
+  );
+  const historyMyCharacterOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          historyMatches
+            .map((match) => match.trackedPlayer?.character)
+            .filter((character): character is string => Boolean(character)),
+        ),
+      )
+        .sort()
+        .map((character) => ({
+          value: character,
+          label: formatCharacterName(character),
+        })),
+    [historyMatches],
+  );
+  const historyOpponentCharacterOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          historyMatches
+            .map((match) => match.opponent?.character)
+            .filter((character): character is string => Boolean(character)),
+        ),
+      )
+        .sort()
+        .map((character) => ({
+          value: character,
+          label: formatCharacterName(character),
+        })),
+    [historyMatches],
+  );
+  const historyOpponentIdentityOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          historyMatches.map((match) => match.opponentIdentity).filter(Boolean),
+        ),
+      )
+        .sort((left, right) =>
+          left.localeCompare(right, undefined, { sensitivity: "base" }),
+        )
+        .map((identity) => ({
+          value: identity,
+          label: identity,
+        })),
+    [historyMatches],
+  );
+  const historyStageOptions = useMemo(
+    () =>
+      Array.from(new Set(historyMatches.map((match) => match.stage)))
+        .sort((left, right) =>
+          formatStageName(left).localeCompare(formatStageName(right)),
+        )
+        .map((stage) => ({
+          value: stage,
+          label: formatStageName(stage),
+        })),
+    [historyMatches],
+  );
+  const historyResultOptions = useMemo(
+    () => [
+      { value: "win", label: "Wins" },
+      { value: "loss", label: "Losses" },
+    ],
+    [],
+  );
+  const filteredHistoryMatches = useMemo(
+    () =>
+      historyMatches.filter((match) => {
+        if (
+          historyMyCharacterFilter.length > 0 &&
+          (!match.trackedPlayer ||
+            !historyMyCharacterFilter.includes(match.trackedPlayer.character))
+        ) {
+          return false;
+        }
+
+        if (
+          historyOpponentCharacterFilter.length > 0 &&
+          (!match.opponent ||
+            !historyOpponentCharacterFilter.includes(match.opponent.character))
+        ) {
+          return false;
+        }
+
+        if (
+          historyOpponentIdentityFilter.length > 0 &&
+          (!match.opponentIdentity ||
+            !historyOpponentIdentityFilter.includes(match.opponentIdentity))
+        ) {
+          return false;
+        }
+
+        if (
+          historyStageFilter.length > 0 &&
+          !historyStageFilter.includes(match.stage)
+        ) {
+          return false;
+        }
+
+        if (historyResultFilter.length > 0) {
+          if (match.didWin == null) {
+            return false;
+          }
+
+          const resultLabel = match.didWin ? "win" : "loss";
+          if (!historyResultFilter.includes(resultLabel)) {
+            return false;
+          }
+        }
+
+        const replayDateKey = getHistoryDateKey(match.startedAt);
+        if (
+          historyDateFrom &&
+          (!replayDateKey || replayDateKey < historyDateFrom)
+        ) {
+          return false;
+        }
+
+        if (
+          historyDateTo &&
+          (!replayDateKey || replayDateKey > historyDateTo)
+        ) {
+          return false;
+        }
+
+        return true;
+      }),
+    [
+      historyMatches,
+      historyMyCharacterFilter,
+      historyOpponentCharacterFilter,
+      historyOpponentIdentityFilter,
+      historyStageFilter,
+      historyResultFilter,
+      historyDateFrom,
+      historyDateTo,
+    ],
+  );
+  const filteredHistoryGames = useMemo(
+    () => filteredHistoryMatches.map((match) => match.game),
+    [filteredHistoryMatches],
+  );
+
+  const selectedHistoryGame =
+    filteredHistoryGames.find((game) => game.id === selectedGameId) ??
+    filteredHistoryGames[0] ??
     null;
+  const selectedGame =
+    activeTab === "history"
+      ? selectedHistoryGame
+      : (savedGames.find((game) => game.id === selectedGameId) ??
+        savedGames[0] ??
+        null);
   const selectedAnalysis = selectedGame
     ? expandPersistedAnalysis(selectedGame.analysis)
     : null;
@@ -252,6 +480,21 @@ export default function SavedGamesPage({
       })),
     [assignmentValues, savedGames],
   );
+
+  useEffect(() => {
+    if (activeTab !== "history") {
+      return;
+    }
+
+    if (filteredHistoryGames.length === 0) {
+      setSelectedGameId(null);
+      return;
+    }
+
+    if (!filteredHistoryGames.some((game) => game.id === selectedGameId)) {
+      setSelectedGameId(filteredHistoryGames[0].id);
+    }
+  }, [activeTab, filteredHistoryGames, selectedGameId]);
 
   const openAssignmentEditor = () => {
     setAssignmentValues(
@@ -332,7 +575,7 @@ export default function SavedGamesPage({
   };
 
   return (
-    <div className="grid gap-8">
+    <div className="grid min-w-0 gap-8 overflow-x-hidden">
       <h2 className="text-2xl font-bold text-white">Saved Games</h2>
 
       {!currentUser ? (
@@ -354,7 +597,7 @@ export default function SavedGamesPage({
           appear here.
         </div>
       ) : (
-        <div className="grid gap-4 lg:gap-8">
+        <div className="grid min-w-0 gap-4 lg:gap-8">
           <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-2 shadow-2xl">
             <div className="grid gap-2 sm:grid-cols-2">
               <button
@@ -377,7 +620,7 @@ export default function SavedGamesPage({
                 type="button"
                 onClick={() => {
                   setActiveTab("history");
-                  setIsHistoryOpen(true);
+                  setIsHistoryOpen(false);
                 }}
                 className={`rounded-xl px-4 py-3 text-left transition ${
                   activeTab === "history"
@@ -440,48 +683,104 @@ export default function SavedGamesPage({
           ) : null}
 
           {activeTab === "history" ? (
-            <div className="grid gap-4 lg:gap-8">
-              <div className="lg:hidden">
-                <button
-                  type="button"
-                  onClick={() => setIsHistoryOpen((open) => !open)}
-                  className="flex w-full items-center justify-between rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-left shadow-2xl transition hover:border-cyan-400/60"
-                  aria-expanded={isHistoryOpen}
-                  aria-controls="saved-games-history"
-                >
-                  <div>
-                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
-                      Game History
+            <div className="grid min-w-0 gap-4 lg:gap-8">
+              <div className="min-w-0 rounded-2xl border border-slate-600 bg-slate-900/35 p-5">
+                <div className="flex min-w-0 flex-col items-center gap-4 text-center">
+                  <div className="max-w-2xl">
+                    <p className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
+                      History Filters
                     </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {savedGames.length} saved
-                      {selectedGame
-                        ? ` • Viewing ${selectedGame.filename}`
-                        : ""}
+                    <p className="mt-2 text-sm text-slate-400">
+                      Showing {filteredHistoryGames.length} of{" "}
+                      {savedGames.length} saved replay
+                      {savedGames.length === 1 ? "" : "s"}.
                     </p>
                   </div>
-                  <span className="text-sm font-semibold text-white">
-                    {isHistoryOpen ? "Hide" : "Show"}
-                  </span>
-                </button>
+
+                  <div className="grid min-w-0 w-full grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    <FilterMultiSelect
+                      label="My character"
+                      allLabel="All characters"
+                      selectedValues={historyMyCharacterFilter}
+                      options={historyMyCharacterOptions}
+                      onChange={setHistoryMyCharacterFilter}
+                    />
+
+                    <FilterMultiSelect
+                      label="Opponent character"
+                      allLabel="All opponents"
+                      selectedValues={historyOpponentCharacterFilter}
+                      options={historyOpponentCharacterOptions}
+                      onChange={setHistoryOpponentCharacterFilter}
+                    />
+
+                    <FilterMultiSelect
+                      label="Opponent tag/name"
+                      allLabel="All opponent tags/names"
+                      selectedValues={historyOpponentIdentityFilter}
+                      options={historyOpponentIdentityOptions}
+                      onChange={setHistoryOpponentIdentityFilter}
+                    />
+
+                    <FilterMultiSelect
+                      label="Stage"
+                      allLabel="All stages"
+                      selectedValues={historyStageFilter}
+                      options={historyStageOptions}
+                      onChange={setHistoryStageFilter}
+                    />
+
+                    <FilterMultiSelect
+                      label="Result"
+                      allLabel="All results"
+                      selectedValues={historyResultFilter}
+                      options={historyResultOptions}
+                      onChange={setHistoryResultFilter}
+                    />
+
+                    <label className="flex flex-col gap-2 text-sm text-slate-300">
+                      Date from
+                      <input
+                        type="date"
+                        value={historyDateFrom}
+                        onChange={(event) =>
+                          setHistoryDateFrom(event.target.value)
+                        }
+                        className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-2 text-sm text-slate-300">
+                      Date to
+                      <input
+                        type="date"
+                        value={historyDateTo}
+                        onChange={(event) =>
+                          setHistoryDateTo(event.target.value)
+                        }
+                        className="rounded-lg border border-slate-600 bg-slate-800 px-3 py-2 text-white outline-none transition focus:border-purple-400"
+                      />
+                    </label>
+                  </div>
+                </div>
               </div>
 
-              <div className="grid gap-8 lg:grid-cols-[22rem_minmax(0,1fr)]">
+              <div className="grid min-w-0 gap-8 lg:grid-cols-[22rem_minmax(0,1fr)]">
                 <div
                   id="saved-games-history"
-                  className={`${isHistoryOpen ? "block" : "hidden"} rounded-xl border border-slate-600 bg-slate-800 p-4 shadow-2xl lg:block lg:max-h-[70vh] lg:overflow-hidden`}
+                  className={`${isHistoryOpen ? "block" : "hidden"} min-w-0 rounded-xl border border-slate-600 bg-slate-800 p-4 shadow-2xl lg:block lg:max-h-[70vh] lg:overflow-hidden`}
                 >
                   <div className="mb-3 flex items-center justify-between">
                     <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
                       History
                     </h3>
                     <span className="text-xs text-slate-400">
-                      {savedGames.length} saved
+                      {filteredHistoryGames.length} shown
                     </span>
                   </div>
 
-                  <div className="grid gap-3 lg:max-h-[calc(70vh-3.5rem)] lg:overflow-y-auto lg:pr-1">
-                    {savedGames.map((game) => (
+                  <div className="grid min-w-0 gap-3 lg:max-h-[calc(70vh-3.5rem)] lg:overflow-y-auto lg:pr-1">
+                    {filteredHistoryGames.map((game) => (
                       <button
                         key={game.id}
                         type="button"
@@ -489,13 +788,13 @@ export default function SavedGamesPage({
                           setSelectedGameId(game.id);
                           setIsHistoryOpen(false);
                         }}
-                        className={`rounded-2xl border p-4 text-left transition ${
+                        className={`min-w-0 rounded-2xl border p-4 text-left transition ${
                           selectedGame?.id === game.id
                             ? "border-cyan-400/70 bg-cyan-500/10"
                             : "border-slate-600 bg-slate-900/35 hover:border-cyan-400/60 hover:bg-slate-900/55"
                         }`}
                       >
-                        <p className="text-sm font-semibold text-white">
+                        <p className="break-words text-sm font-semibold text-white">
                           {game.filename}
                         </p>
                         <p className="mt-1 text-xs text-slate-400">
@@ -508,7 +807,7 @@ export default function SavedGamesPage({
                             ? `You: ${game.trackedPlayerAssignment.playerLabel}`
                             : "Player assignment needed"}
                         </p>
-                        <p className="mt-3 text-sm text-slate-300">
+                        <p className="mt-3 break-words text-sm text-slate-300">
                           {game.summary}
                         </p>
                       </button>
@@ -516,9 +815,45 @@ export default function SavedGamesPage({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-green-500/20 bg-slate-800 p-8 shadow-2xl">
+                <div className="min-w-0 rounded-xl border border-green-500/20 bg-slate-800 p-8 shadow-2xl">
                   {selectedGame && selectedAnalysis ? (
                     <div className="space-y-6">
+                      <div className="lg:hidden">
+                        <div className="rounded-xl border border-slate-600 bg-slate-900/35 p-4">
+                          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-cyan-300">
+                            Game History
+                          </p>
+                          <p className="mt-1 break-words text-lg font-semibold text-white">
+                            {selectedGame.filename}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {savedGames.length} saved replay
+                            {savedGames.length === 1 ? "" : "s"}
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={() => setIsHistoryOpen((open) => !open)}
+                            className="mt-4 flex w-full items-center justify-between rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-left transition hover:border-cyan-400/60"
+                            aria-expanded={isHistoryOpen}
+                            aria-controls="saved-games-history"
+                          >
+                            <div>
+                              <p className="text-sm font-semibold text-white">
+                                Choose replay
+                              </p>
+                              <p className="mt-1 text-xs text-slate-400">
+                                {filteredHistoryGames.length} shown by current
+                                filters
+                              </p>
+                            </div>
+                            <span className="text-sm font-semibold text-white">
+                              {isHistoryOpen ? "Hide" : "Show"}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+
                       <div className="flex flex-col gap-2">
                         <h2 className="text-2xl font-bold text-white">
                           {selectedGame.filename}

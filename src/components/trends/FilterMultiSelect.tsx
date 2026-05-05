@@ -119,13 +119,13 @@ export default function FilterMultiSelect({
   );
 
   return (
-    <div className="relative h-full" ref={containerRef}>
-      <div className="flex h-full flex-col gap-2 text-sm text-slate-300">
+    <div className="relative h-full min-w-0" ref={containerRef}>
+      <div className="flex h-full min-w-0 flex-col gap-2 text-sm text-slate-300">
         <span>{label}</span>
         <button
           type="button"
           onClick={() => setIsOpen((current) => !current)}
-          className="flex min-h-11 w-full flex-1 items-center justify-between gap-3 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-left text-white outline-none transition hover:border-purple-400 focus:border-purple-400"
+          className="flex min-h-11 w-full min-w-0 flex-1 items-center justify-between gap-3 rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-left text-white outline-none transition hover:border-purple-400 focus:border-purple-400"
         >
           <span className="min-w-0 truncate">{summary}</span>
           <span className="rounded-full border border-slate-500/70 bg-slate-700/70 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-200">
@@ -135,7 +135,7 @@ export default function FilterMultiSelect({
       </div>
 
       {isOpen ? (
-        <div className="absolute left-0 top-[calc(100%+0.65rem)] z-20 w-full min-w-[15rem] rounded-2xl border border-slate-600 bg-slate-900/95 p-3 shadow-xl shadow-black/30">
+        <div className="absolute left-0 top-[calc(100%+0.65rem)] z-20 w-full max-w-full rounded-2xl border border-slate-600 bg-slate-900/95 p-3 shadow-xl shadow-black/30">
           <div className="mb-2 border-b border-slate-700/80 pb-2">
             <button
               type="button"

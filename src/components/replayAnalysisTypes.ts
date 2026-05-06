@@ -57,6 +57,7 @@ export interface AnalysisMetadataPlayer {
 }
 
 export interface AnalysisResponse {
+  replay_id?: string;
   stats: {
     total_frames: number;
     total_actions: number;
@@ -105,6 +106,10 @@ export interface BatchAnalysisResponse {
   replays: ReplayAnalysisWithFile[];
   available_tags: string[];
   failed_files: BatchFailure[];
+  duplicate_files?: Array<{
+    filename: string;
+    replay_id: string;
+  }>;
 }
 
 export interface SavedGameRecord {

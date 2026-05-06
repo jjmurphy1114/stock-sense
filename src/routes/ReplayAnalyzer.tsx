@@ -30,6 +30,7 @@ import type {
   AnalysisResponse,
   AnalysisMetadataPlayer,
   BatchAnalysisResponse,
+  ReplayAnalysisWithFile,
   TrackedPlayerAssignment,
 } from "../components/replayAnalysisTypes";
 import { formatCharacterName } from "../components/replayAnalysisTypes";
@@ -51,26 +52,17 @@ type AnalysisJobStartResponse = {
   job_id: string;
 };
 
+type DuplicateFileResult = {
+  filename: string;
+  replay_id: string;
+};
+
 type AnalysisJobResponse = {
   status: "queued" | "processing" | "completed" | "failed";
   phase: string;
   progress: number;
   result: unknown;
   error: string | null;
-};
-
-type ReplayIdentityResponse = {
-  replays: Array<{
-    index: number;
-    filename: string;
-    replay_id: string;
-    metadata?: AnalysisResponse["metadata"];
-  }>;
-  failed_files: Array<{
-    index: number;
-    filename: string;
-    error: string;
-  }>;
 };
 
 function postFormDataWithProgress(
@@ -181,17 +173,14 @@ type PendingAssignmentReplay = {
   filename: string;
   players: AnalysisMetadataPlayer[];
   suggestedAssignment: TrackedPlayerAssignment | null;
+  analysis: ReplayAnalysisWithFile;
 };
 
 type PendingAssignmentState = {
   replays: PendingAssignmentReplay[];
   values: Record<string, string>;
   applyToAllValue: string;
-  filesToAnalyze: File[];
   uploadSource: "single" | "folder";
-  skippedDuplicateNames: string[];
-  duplicateReplayIds: string[];
-  precheckWarnings: string[];
   saving: boolean;
   error: string | null;
 };
@@ -213,7 +202,6 @@ export default function ReplayAnalyzer({
     null,
   );
   const [loading, setLoading] = useState(false);
-  const [isPreparingAssignments, setIsPreparingAssignments] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [analysisProgress, setAnalysisProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -328,37 +316,8 @@ export default function ReplayAnalyzer({
       })),
       available_tags: rawData.available_tags ?? [],
       failed_files: rawData.failed_files ?? [],
+      duplicate_files: rawData.duplicate_files ?? [],
     };
-  };
-
-  const identifyReplayDocuments = async (
-    files: File[],
-  ): Promise<ReplayIdentityResponse> => {
-    const formData = new FormData();
-    files.forEach((file) => {
-      formData.append("files", file);
-    });
-
-    const response = await fetch(`${API_BASE_URL}/replay-ids`, {
-      method: "POST",
-      body: formData,
-    });
-
-    const payload = (await response.json()) as unknown;
-
-    if (!response.ok) {
-      const errorPayload = payload as {
-        detail?: { message?: string } | string;
-      };
-      const detail =
-        typeof errorPayload.detail === "string"
-          ? errorPayload.detail
-          : errorPayload.detail?.message ||
-            "Failed to identify uploaded replays";
-      throw new Error(detail);
-    }
-
-    return payload as ReplayIdentityResponse;
   };
 
   const loadDemoReplay = () => {
@@ -405,6 +364,87 @@ export default function ReplayAnalyzer({
     }
 
     return parts.join(" ") || "No new game records were saved.";
+  };
+
+  const buildPendingAssignmentReplays = (
+    replays: ReplayAnalysisWithFile[],
+  ): PendingAssignmentReplay[] => {
+    return replays.map((replay) => {
+      const replayId = replay.replay_id ?? buildReplayDocumentId(replay);
+      const players = (replay.metadata?.players ?? []).filter(
+        (player) => !player.is_cpu,
+      );
+      const suggestedPlayer = findAutoTrackedPlayer(
+        replay,
+        profile?.slippiGamertag ?? "",
+      );
+
+      return {
+        replayId,
+        filename: replay.filename,
+        players,
+        analysis: replay,
+        suggestedAssignment: suggestedPlayer
+          ? buildTrackedPlayerAssignment(suggestedPlayer, "profile_slippi_tag")
+          : null,
+      };
+    });
+  };
+
+  const buildTrackedAssignmentsLookup = (
+    replays: PendingAssignmentReplay[],
+    values: Record<string, string>,
+  ): TrackedAssignmentsLookup => {
+    const byReplayId = Object.fromEntries(
+      replays.map((replay) => {
+        const selectedPlayerIndex = Number(values[replay.replayId]);
+        const selectedPlayer = replay.players.find(
+          (player) => player.player_index === selectedPlayerIndex,
+        );
+
+        if (!selectedPlayer) {
+          throw new Error(`Could not resolve player for ${replay.filename}.`);
+        }
+
+        return [
+          replay.replayId,
+          buildTrackedPlayerAssignment(
+            selectedPlayer,
+            replay.suggestedAssignment?.playerIndex === selectedPlayerIndex
+              ? replay.suggestedAssignment.source
+              : "manual",
+          ),
+        ];
+      }),
+    ) as Record<string, TrackedPlayerAssignment>;
+
+    const byFilename = Object.fromEntries(
+      replays.map((replay) => [replay.filename, byReplayId[replay.replayId]]),
+    ) as Record<string, TrackedPlayerAssignment>;
+
+    return {
+      byReplayId,
+      byFilename,
+    };
+  };
+
+  const appendDuplicateAndWarningMessage = (
+    baseMessage: string | null,
+    duplicateFiles: DuplicateFileResult[],
+    precheckWarnings: string[],
+  ) => {
+    const duplicateMessage =
+      duplicateFiles.length > 0
+        ? `Skipped ${duplicateFiles.length} duplicate replay${duplicateFiles.length === 1 ? "" : "s"} already in your saved games.`
+        : null;
+    const warningMessage =
+      precheckWarnings.length > 0
+        ? `Duplicate precheck could not verify ${precheckWarnings.length} item${precheckWarnings.length === 1 ? "" : "s"}, so analysis continued normally.`
+        : null;
+
+    return [baseMessage, duplicateMessage, warningMessage]
+      .filter(Boolean)
+      .join(" ");
   };
 
   const persistCompletedAnalysis = async (
@@ -516,17 +556,13 @@ export default function ReplayAnalyzer({
   const startAnalysisUpload = async ({
     filesToAnalyze,
     uploadSource: nextUploadSource,
-    skippedDuplicateNames,
     precheckWarnings,
-    trackedAssignments,
-    duplicateReplayIds,
+    savedReplayIds,
   }: {
     filesToAnalyze: File[];
     uploadSource: "single" | "folder";
-    skippedDuplicateNames: string[];
     precheckWarnings: string[];
-    trackedAssignments?: TrackedAssignmentsLookup;
-    duplicateReplayIds?: string[];
+    savedReplayIds: string[];
   }) => {
     const isBatchUpload =
       nextUploadSource === "folder" || filesToAnalyze.length > 1;
@@ -537,6 +573,7 @@ export default function ReplayAnalyzer({
     setError(null);
     setAnalysis(null);
     setBatchAnalysis(null);
+    setPendingAssignmentState(null);
     setIsDemoReplay(false);
     setSaveMessage(null);
 
@@ -550,6 +587,11 @@ export default function ReplayAnalyzer({
       } else {
         formData.append("file", filesToAnalyze[0]);
       }
+      formData.append("saved_replay_ids", JSON.stringify(savedReplayIds));
+      formData.append(
+        "skip_duplicates",
+        savedReplayIds.length > 0 && skipDuplicates ? "true" : "false",
+      );
 
       const response = await postFormDataWithProgress(
         `${API_BASE_URL}${isBatchUpload ? "/analyze-batch-start" : "/analyze-start"}`,
@@ -583,62 +625,175 @@ export default function ReplayAnalyzer({
       if (isBatchUpload) {
         const rawData = result as BatchAnalysisResponse;
         const data = normalizeBatchResponse(rawData);
+        const duplicateFiles = data.duplicate_files ?? [];
+
+        if (data.replays.length === 0) {
+          setSaveMessage(
+            appendDuplicateAndWarningMessage(
+              data.failed_files.length > 0
+                ? "No new replays were analyzed."
+                : "No new replays to analyze.",
+              duplicateFiles,
+              precheckWarnings,
+            ),
+          );
+          setSelectedFiles([]);
+          setUploadSource(null);
+          setSelectionLabel("");
+          clearPickerValues();
+          return;
+        }
+
         setBatchAnalysis(data);
         setSelectedTag(getDefaultBatchTag(data));
-        await persistCompletedAnalysis(
-          true,
-          null,
-          data,
-          uploadedFileNames,
-          trackedAssignments,
-          duplicateReplayIds,
-        );
-        if (skippedDuplicateNames.length > 0) {
-          setSaveMessage((currentMessage) => {
-            const duplicateMessage = `Skipped ${skippedDuplicateNames.length} duplicate replay${skippedDuplicateNames.length === 1 ? "" : "s"} before analysis.`;
-            const warningMessage =
-              precheckWarnings.length > 0
-                ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
-                : "";
+        if (!currentUser) {
+          setSaveMessage(
+            appendDuplicateAndWarningMessage(
+              "Analysis ready. Sign in with Google to save uploads.",
+              duplicateFiles,
+              precheckWarnings,
+            ),
+          );
+        } else {
+          const pendingReplays = buildPendingAssignmentReplays(data.replays);
+          const unresolvedReplays = pendingReplays.filter(
+            (replay) => replay.suggestedAssignment == null,
+          );
 
-            return [currentMessage, `${duplicateMessage}${warningMessage}`]
-              .filter(Boolean)
-              .join(" ");
-          });
+          if (pendingReplays.length > 0 && unresolvedReplays.length > 0) {
+            setPendingAssignmentState({
+              replays: pendingReplays,
+              values: Object.fromEntries(
+                pendingReplays.map((replay) => [
+                  replay.replayId,
+                  replay.suggestedAssignment
+                    ? String(replay.suggestedAssignment.playerIndex)
+                    : "",
+                ]),
+              ),
+              applyToAllValue: "",
+              uploadSource: nextUploadSource,
+              saving: false,
+              error: null,
+            });
+            setSaveMessage(
+              appendDuplicateAndWarningMessage(
+                `Analysis ready. Choose your player assignment for ${unresolvedReplays.length} replay${unresolvedReplays.length === 1 ? "" : "s"} before saving.`,
+                duplicateFiles,
+                precheckWarnings,
+              ),
+            );
+          } else {
+            const trackedAssignments = buildTrackedAssignmentsLookup(
+              pendingReplays,
+              Object.fromEntries(
+                pendingReplays.map((replay) => [
+                  replay.replayId,
+                  String(replay.suggestedAssignment?.playerIndex ?? ""),
+                ]),
+              ),
+            );
+            await persistCompletedAnalysis(
+              true,
+              null,
+              data,
+              uploadedFileNames,
+              trackedAssignments,
+            );
+            setSaveMessage((currentMessage) =>
+              appendDuplicateAndWarningMessage(
+                currentMessage,
+                duplicateFiles,
+                precheckWarnings,
+              ),
+            );
+          }
         }
       } else {
-        const rawData = result as AnalysisResponse;
+        const singleResult = result as
+          | AnalysisResponse
+          | { duplicate_file?: DuplicateFileResult };
+
+        if ("duplicate_file" in singleResult && singleResult.duplicate_file) {
+          setSaveMessage(
+            appendDuplicateAndWarningMessage(
+              `${singleResult.duplicate_file.filename} is already in your saved games.`,
+              [singleResult.duplicate_file],
+              precheckWarnings,
+            ),
+          );
+          setSelectedFiles([]);
+          setUploadSource(null);
+          setSelectionLabel("");
+          clearPickerValues();
+          return;
+        }
+
+        const rawData = singleResult as AnalysisResponse;
         const data = normalizeSingleAnalysis(rawData);
         setAnalysis(data);
         setActiveTab("overview");
-        await persistCompletedAnalysis(
-          false,
-          data,
-          null,
-          uploadedFileNames,
-          trackedAssignments,
-          duplicateReplayIds,
-        );
-        if (skippedDuplicateNames.length > 0) {
-          setSaveMessage((currentMessage) => {
-            const duplicateMessage = `Skipped ${skippedDuplicateNames[0]} because it is already in your saved games.`;
-            const warningMessage =
-              precheckWarnings.length > 0
-                ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
-                : "";
+        if (!currentUser) {
+          setSaveMessage(
+            appendDuplicateAndWarningMessage(
+              "Analysis ready. Sign in with Google to save uploads.",
+              [],
+              precheckWarnings,
+            ),
+          );
+        } else {
+          const replayWithFile: ReplayAnalysisWithFile = {
+            ...data,
+            filename: uploadedFileNames[0],
+          };
+          const pendingReplays = buildPendingAssignmentReplays([replayWithFile]);
+          const unresolvedReplay = pendingReplays.find(
+            (replay) => replay.suggestedAssignment == null,
+          );
 
-            return [currentMessage, `${duplicateMessage}${warningMessage}`]
-              .filter(Boolean)
-              .join(" ");
-          });
+          if (unresolvedReplay) {
+            setPendingAssignmentState({
+              replays: pendingReplays,
+              values: {
+                [unresolvedReplay.replayId]: "",
+              },
+              applyToAllValue: "",
+              uploadSource: nextUploadSource,
+              saving: false,
+              error: null,
+            });
+            setSaveMessage(
+              appendDuplicateAndWarningMessage(
+                "Analysis ready. Choose your player assignment before saving.",
+                [],
+                precheckWarnings,
+              ),
+            );
+          } else {
+            const trackedAssignments = buildTrackedAssignmentsLookup(
+              pendingReplays,
+              {
+                [pendingReplays[0].replayId]: String(
+                  pendingReplays[0].suggestedAssignment?.playerIndex ?? "",
+                ),
+              },
+            );
+            await persistCompletedAnalysis(
+              false,
+              data,
+              null,
+              uploadedFileNames,
+              trackedAssignments,
+            );
+            setSaveMessage((currentMessage) =>
+              appendDuplicateAndWarningMessage(
+                currentMessage,
+                [],
+                precheckWarnings,
+              ),
+            );
+          }
         }
-      }
-
-      if (precheckWarnings.length > 0 && skippedDuplicateNames.length === 0) {
-        setSaveMessage((currentMessage) => {
-          const warningMessage = `Duplicate precheck could not verify ${precheckWarnings.length} item${precheckWarnings.length === 1 ? "" : "s"}, so analysis continued normally.`;
-          return [currentMessage, warningMessage].filter(Boolean).join(" ");
-        });
       }
 
       setSelectedFiles([]);
@@ -684,50 +839,35 @@ export default function ReplayAnalyzer({
     );
 
     try {
-      const byReplayId = Object.fromEntries(
-        pendingAssignmentState.replays.map((replay) => {
-          const selectedPlayerIndex = Number(
-            pendingAssignmentState.values[replay.replayId],
-          );
-          const selectedPlayer = replay.players.find(
-            (player) => player.player_index === selectedPlayerIndex,
-          );
-
-          if (!selectedPlayer) {
-            throw new Error(`Could not resolve player for ${replay.filename}.`);
-          }
-
-          return [
-            replay.replayId,
-            buildTrackedPlayerAssignment(
-              selectedPlayer,
-              replay.suggestedAssignment?.playerIndex === selectedPlayerIndex
-                ? replay.suggestedAssignment.source
-                : "manual",
-            ),
-          ];
-        }),
-      ) as Record<string, TrackedPlayerAssignment>;
-      const byFilename = Object.fromEntries(
-        pendingAssignmentState.replays.map((replay) => [
-          replay.filename,
-          byReplayId[replay.replayId],
-        ]),
-      ) as Record<string, TrackedPlayerAssignment>;
-
       const pendingState = pendingAssignmentState;
+      const trackedAssignments = buildTrackedAssignmentsLookup(
+        pendingState.replays,
+        pendingState.values,
+      );
       setPendingAssignmentState(null);
-      await startAnalysisUpload({
-        filesToAnalyze: pendingState.filesToAnalyze,
-        uploadSource: pendingState.uploadSource,
-        skippedDuplicateNames: pendingState.skippedDuplicateNames,
-        precheckWarnings: pendingState.precheckWarnings,
-        duplicateReplayIds: pendingState.duplicateReplayIds,
-        trackedAssignments: {
-          byReplayId,
-          byFilename,
-        },
-      });
+
+      if (pendingState.uploadSource === "folder" || pendingState.replays.length > 1) {
+        await persistCompletedAnalysis(
+          true,
+          null,
+          {
+            replays: pendingState.replays.map((replay) => replay.analysis),
+            available_tags: batchAnalysis?.available_tags ?? [],
+            failed_files: batchAnalysis?.failed_files ?? [],
+            duplicate_files: batchAnalysis?.duplicate_files ?? [],
+          },
+          pendingState.replays.map((replay) => replay.filename),
+          trackedAssignments,
+        );
+      } else {
+        await persistCompletedAnalysis(
+          false,
+          pendingState.replays[0]?.analysis ?? null,
+          null,
+          pendingState.replays.map((replay) => replay.filename),
+          trackedAssignments,
+        );
+      }
     } catch (saveError) {
       setPendingAssignmentState((current) =>
         current
@@ -752,181 +892,31 @@ export default function ReplayAnalyzer({
       return;
     }
 
-    setLoading(true);
-    setIsPreparingAssignments(true);
-    setUploadProgress(0);
-    setAnalysisProgress(null);
-    setError(null);
-    setAnalysis(null);
-    setBatchAnalysis(null);
-    setIsDemoReplay(false);
-    setSaveMessage(null);
-
     try {
-      let filesToAnalyze = selectedFiles;
-      const skippedDuplicateNames: string[] = [];
       const precheckWarnings: string[] = [];
-      let replayIdentityData: ReplayIdentityResponse | null = null;
-      const duplicateIndexes = new Set<number>();
-      const duplicateReplayIds: string[] = [];
+      let savedReplayIds: string[] = [];
 
       if (currentUser) {
         try {
-          replayIdentityData = await identifyReplayDocuments(selectedFiles);
-          replayIdentityData.failed_files.forEach((file) => {
-            precheckWarnings.push(`${file.filename}: ${file.error}`);
-          });
-
-          const savedReplayIds = await loadSavedReplayIds(currentUser.uid);
-          replayIdentityData.replays.forEach((replay) => {
-            if (savedReplayIds.has(replay.replay_id)) {
-              duplicateReplayIds.push(replay.replay_id);
-              if (skipDuplicates) {
-                duplicateIndexes.add(replay.index);
-                skippedDuplicateNames.push(replay.filename);
-              }
-            }
-          });
+          savedReplayIds = Array.from(await loadSavedReplayIds(currentUser.uid));
         } catch (precheckError) {
           precheckWarnings.push(
             precheckError instanceof Error
               ? precheckError.message
-              : "Replay metadata lookup was unavailable.",
+              : "Saved replay lookup was unavailable.",
           );
         }
-      }
-
-      filesToAnalyze = selectedFiles.filter((_, index) => {
-        return !duplicateIndexes.has(index);
-      });
-
-      if (filesToAnalyze.length === 0) {
-        const duplicateMessage =
-          skippedDuplicateNames.length > 0
-            ? `Skipped ${skippedDuplicateNames.length} duplicate replay${skippedDuplicateNames.length === 1 ? "" : "s"} already in your saved games.`
-            : "No new replays to analyze.";
-        const warningMessage =
-          precheckWarnings.length > 0
-            ? ` Could not fingerprint ${precheckWarnings.length} file${precheckWarnings.length === 1 ? "" : "s"} during duplicate check.`
-            : "";
-
-        setSaveMessage(`${duplicateMessage}${warningMessage}`);
-        setSelectedFiles([]);
-        setUploadSource(null);
-        setSelectionLabel("");
-        clearPickerValues();
-        return;
-      }
-
-      if (currentUser && replayIdentityData) {
-        const pendingReplays = replayIdentityData.replays
-          .filter((replay) => !duplicateIndexes.has(replay.index))
-          .map((replay) => {
-            const players = (replay.metadata?.players ?? []).filter(
-              (player) => !player.is_cpu,
-            );
-            const suggestedPlayer = findAutoTrackedPlayer(
-              { metadata: replay.metadata },
-              profile?.slippiGamertag ?? "",
-            );
-
-            return {
-              replayId: replay.replay_id,
-              filename: replay.filename,
-              players,
-              suggestedAssignment: suggestedPlayer
-                ? buildTrackedPlayerAssignment(
-                    suggestedPlayer,
-                    "profile_slippi_tag",
-                  )
-                : null,
-            };
-          });
-
-        const unresolvedReplays = pendingReplays.filter(
-          (replay) => replay.suggestedAssignment == null,
-        );
-
-        if (unresolvedReplays.length > 0) {
-          setPendingAssignmentState({
-            replays: pendingReplays,
-            values: Object.fromEntries(
-              pendingReplays.map((replay) => [
-                replay.replayId,
-                replay.suggestedAssignment
-                  ? String(replay.suggestedAssignment.playerIndex)
-                  : "",
-              ]),
-            ),
-            applyToAllValue: "",
-            filesToAnalyze,
-            uploadSource,
-            skippedDuplicateNames,
-            precheckWarnings,
-            duplicateReplayIds,
-            saving: false,
-            error: null,
-          });
-          setSaveMessage(
-            `Choose your player assignment for ${unresolvedReplays.length} replay${unresolvedReplays.length === 1 ? "" : "s"} before saving.`,
-          );
-          return;
-        }
-
-        const byReplayId = Object.fromEntries(
-          pendingReplays
-            .filter(
-              (
-                replay,
-              ): replay is PendingAssignmentReplay & {
-                suggestedAssignment: TrackedPlayerAssignment;
-              } => replay.suggestedAssignment != null,
-            )
-            .map((replay) => [replay.replayId, replay.suggestedAssignment]),
-        ) as Record<string, TrackedPlayerAssignment>;
-        const byFilename = Object.fromEntries(
-          pendingReplays
-            .filter(
-              (
-                replay,
-              ): replay is PendingAssignmentReplay & {
-                suggestedAssignment: TrackedPlayerAssignment;
-              } => replay.suggestedAssignment != null,
-            )
-            .map((replay) => [replay.filename, replay.suggestedAssignment]),
-        ) as Record<string, TrackedPlayerAssignment>;
-
-        await startAnalysisUpload({
-          filesToAnalyze,
-          uploadSource,
-          skippedDuplicateNames,
-          precheckWarnings,
-          duplicateReplayIds,
-          trackedAssignments: {
-            byReplayId,
-            byFilename,
-          },
-        });
-        return;
       }
 
       await startAnalysisUpload({
-        filesToAnalyze,
+        filesToAnalyze: selectedFiles,
         uploadSource,
-        skippedDuplicateNames,
         precheckWarnings,
-        duplicateReplayIds,
+        savedReplayIds,
       });
       return;
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
-    } finally {
-      setIsPreparingAssignments(false);
-      if (!pendingAssignmentState) {
-        setUploadProgress(null);
-        setAnalysisProgress(null);
-        setLoading(false);
-      }
     }
   };
 
@@ -1114,13 +1104,12 @@ export default function ReplayAnalyzer({
                 )}
 
                 {loading &&
-                isPreparingAssignments &&
                 uploadProgress === 0 &&
                 analysisProgress === null ? (
                   <div className="space-y-2">
                     <div className="flex items-center justify-between text-xs text-slate-300">
-                      <span>Preparing replay assignments...</span>
-                      <span>Matching players</span>
+                      <span>Preparing upload...</span>
+                      <span>Starting job</span>
                     </div>
                     <div className="h-2 w-full overflow-hidden rounded-full bg-slate-700">
                       <div className="h-full w-1/3 animate-pulse rounded-full bg-linear-to-r from-cyan-400 to-purple-500" />

@@ -459,7 +459,7 @@ def _build_player_map(game: Game) -> Dict[int, Dict[str, Any]]:
     return player_map
 
 
-def extract_stats(game: Game) -> Dict[str, Any]:
+def extract_stats(game: Game, include_hit_locations: bool = True) -> Dict[str, Any]:
     """
     Extract basic stats from a loaded replay.
     
@@ -802,7 +802,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
 
                 position_now = snapshot.get("position")
                 pending_hit_indices = player_stats.get("_pending_hit_indices", [])
-                if position_now is not None and pending_hit_indices:
+                if include_hit_locations and position_now is not None and pending_hit_indices:
                     remaining_pending_hit_indices = []
                     for hit_index in pending_hit_indices:
                         hit_event = stats["hit_locations"][hit_index]
@@ -831,7 +831,7 @@ def extract_stats(game: Game) -> Dict[str, Any]:
                 if prev_stocks is not None and current_stocks is not None:
                     lost_stock = current_stocks < prev_stocks
 
-                if damage_taken > 0 and position_now is not None:
+                if include_hit_locations and damage_taken > 0 and position_now is not None:
                     stats["hit_locations"].append(
                         {
                             "frame_index": frame_index,
@@ -1026,6 +1026,8 @@ def extract_stats(game: Game) -> Dict[str, Any]:
             )
 
         stats["per_player"] = per_player_results
+        if not include_hit_locations:
+            stats["hit_locations"] = []
         
     except Exception as e:
         print(f"Error extracting stats: {e}")

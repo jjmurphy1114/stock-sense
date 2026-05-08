@@ -43,6 +43,14 @@ function assertFirestoreConfigured() {
 export function trimAnalysisForStorage(
   analysis: AnalysisResponse,
 ): PersistedAnalysisResponse {
+  const {
+    filename: _filename,
+    trackedPlayerAssignment: _trackedPlayerAssignment,
+    ...persistableAnalysis
+  } = analysis as AnalysisResponse & {
+    filename?: string;
+    trackedPlayerAssignment?: TrackedPlayerAssignment | null;
+  };
   const statsWithoutHitLocations = Object.fromEntries(
     Object.entries(analysis.stats).filter(([key]) => key !== "hit_locations"),
   ) as Omit<AnalysisResponse["stats"], "hit_locations">;
@@ -50,7 +58,7 @@ export function trimAnalysisForStorage(
   return {
     ...(JSON.parse(
       JSON.stringify({
-        ...analysis,
+        ...persistableAnalysis,
         stats: {
           ...statsWithoutHitLocations,
           per_player: analysis.stats?.per_player ?? [],

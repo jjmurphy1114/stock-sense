@@ -173,6 +173,9 @@ export default function SavedGamesPage({
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isAssignmentEditorOpen, setIsAssignmentEditorOpen] = useState(false);
+  const [assignmentEditorGameId, setAssignmentEditorGameId] = useState<
+    string | null
+  >(null);
   const [assignmentValues, setAssignmentValues] = useState<
     Record<string, string>
   >({});
@@ -252,9 +255,10 @@ export default function SavedGamesPage({
 
     return {
       replays: savedGames.map((game) => ({
+        ...expandPersistedAnalysis(game.analysis),
+        replay_id: game.id,
         filename: game.filename,
         trackedPlayerAssignment: game.trackedPlayerAssignment,
-        ...expandPersistedAnalysis(game.analysis),
       })),
       available_tags: availableTags,
       failed_files: [],
@@ -464,21 +468,25 @@ export default function SavedGamesPage({
   ).length;
   const assignmentItems = useMemo(
     () =>
-      savedGames.map((game) => ({
-        id: game.id,
-        title: game.filename,
-        subtitle: `Current assignment: ${
-          game.trackedPlayerAssignment?.playerLabel ?? "Not set"
-        }`,
-        selectedValue: assignmentValues[game.id] ?? "",
-        players: getAssignablePlayers(game.analysis).map((player) => ({
-          playerIndex: player.player_index,
-          label: getPlayerAssignmentLabel(player),
-          character: player.character,
-          detail: getPlayerAssignmentDetail(player),
+      savedGames
+        .filter((game) =>
+          assignmentEditorGameId ? game.id === assignmentEditorGameId : true,
+        )
+        .map((game) => ({
+          id: game.id,
+          title: game.filename,
+          subtitle: `Current assignment: ${
+            game.trackedPlayerAssignment?.playerLabel ?? "Not set"
+          }`,
+          selectedValue: assignmentValues[game.id] ?? "",
+          players: getAssignablePlayers(game.analysis).map((player) => ({
+            playerIndex: player.player_index,
+            label: getPlayerAssignmentLabel(player),
+            character: player.character,
+            detail: getPlayerAssignmentDetail(player),
+          })),
         })),
-      })),
-    [assignmentValues, savedGames],
+    [assignmentEditorGameId, assignmentValues, savedGames],
   );
 
   useEffect(() => {
@@ -496,7 +504,7 @@ export default function SavedGamesPage({
     }
   }, [activeTab, filteredHistoryGames, selectedGameId]);
 
-  const openAssignmentEditor = () => {
+  const openAssignmentEditor = (gameId?: string) => {
     setAssignmentValues(
       Object.fromEntries(
         savedGames.map((game) => [
@@ -507,6 +515,7 @@ export default function SavedGamesPage({
         ]),
       ),
     );
+    setAssignmentEditorGameId(gameId ?? null);
     setAssignmentError(null);
     setAssignmentMessage(null);
     setIsAssignmentEditorOpen(true);
@@ -517,18 +526,17 @@ export default function SavedGamesPage({
       return;
     }
 
-    const missingGame = savedGames.find((game) => !assignmentValues[game.id]);
-    if (missingGame) {
-      setAssignmentError(`Choose your player for ${missingGame.filename}.`);
-      return;
-    }
-
     setAssignmentSaving(true);
     setAssignmentError(null);
 
     try {
-      const updates = savedGames.map((game) => {
-        const selectedPlayerIndex = Number(assignmentValues[game.id]);
+      const updates = savedGames.flatMap((game) => {
+        const selectedValue = assignmentValues[game.id];
+        if (!selectedValue) {
+          return [];
+        }
+
+        const selectedPlayerIndex = Number(selectedValue);
         const player = getAssignablePlayers(game.analysis).find(
           (entry) => entry.player_index === selectedPlayerIndex,
         );
@@ -539,16 +547,25 @@ export default function SavedGamesPage({
           );
         }
 
-        return {
+        if (game.trackedPlayerAssignment?.playerIndex === selectedPlayerIndex) {
+          return [];
+        }
+
+        return [{
           replayId: game.id,
           trackedPlayerAssignment: buildTrackedPlayerAssignment(
             player,
-            game.trackedPlayerAssignment?.playerIndex === selectedPlayerIndex
-              ? game.trackedPlayerAssignment.source
-              : "manual",
+            "manual",
           ),
-        };
+        }];
       });
+
+      if (updates.length === 0) {
+        setAssignmentMessage("No assignment changes to save.");
+        setIsAssignmentEditorOpen(false);
+        setAssignmentEditorGameId(null);
+        return;
+      }
 
       await updateSavedGameAssignments(currentUser.uid, updates);
 
@@ -565,6 +582,7 @@ export default function SavedGamesPage({
       );
       setAssignmentMessage("Saved replay assignments.");
       setIsAssignmentEditorOpen(false);
+      setAssignmentEditorGameId(null);
     } catch (error) {
       setAssignmentError(
         error instanceof Error ? error.message : "Failed to save assignments.",
@@ -646,6 +664,9 @@ export default function SavedGamesPage({
                   subtitle="Review your saved replay history using the player assignment stored with each game"
                   summaryLabel="Saved replays"
                   showAssignmentSection={false}
+                  onEditReplayAssignment={(replayId) => {
+                    openAssignmentEditor(replayId);
+                  }}
                 />
               ) : (
                 <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
@@ -673,7 +694,7 @@ export default function SavedGamesPage({
 
                 <button
                   type="button"
-                  onClick={openAssignmentEditor}
+                  onClick={() => openAssignmentEditor()}
                   className="rounded-xl border border-purple-400/40 bg-purple-500/10 px-4 py-2.5 text-sm font-semibold text-purple-100 transition hover:bg-purple-500/20"
                 >
                   Change Assignments
@@ -1099,7 +1120,10 @@ export default function SavedGamesPage({
         items={assignmentItems}
         assignmentError={assignmentError}
         assignmentSaving={assignmentSaving}
-        onClose={() => setIsAssignmentEditorOpen(false)}
+        onClose={() => {
+          setAssignmentEditorGameId(null);
+          setIsAssignmentEditorOpen(false);
+        }}
         onChange={(itemId, value) => {
           setAssignmentError(null);
           setAssignmentValues((current) => ({

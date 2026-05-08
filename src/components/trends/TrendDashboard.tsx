@@ -119,7 +119,7 @@ function normalizeTag(tag: string) {
 }
 
 function getReplayId(replay: ReplayAnalysisWithFile, index: number) {
-  return `${index}-${replay.filename}-${replay.stats.total_frames}`;
+  return replay.replay_id ?? `${index}-${replay.filename}-${replay.stats.total_frames}`;
 }
 
 function getReplayTimestamp(startedAt?: string) {
@@ -399,6 +399,7 @@ const TrendDashboard = memo(function TrendDashboard({
   summaryLabel = "Uploads analyzed",
   subtitle = "Review habits across a folder of replays by Slippi tag",
   showAssignmentSection = true,
+  onEditReplayAssignment,
 }: {
   batchAnalysis: BatchAnalysisResponse;
   selectedTag?: string;
@@ -407,6 +408,7 @@ const TrendDashboard = memo(function TrendDashboard({
   summaryLabel?: string;
   subtitle?: string;
   showAssignmentSection?: boolean;
+  onEditReplayAssignment?: (replayId: string) => void;
 }) {
   const [replayOverrides, setReplayOverrides] = useState<
     Record<string, ReplayOverrideValue>
@@ -1039,15 +1041,28 @@ const TrendDashboard = memo(function TrendDashboard({
                               : ""}
                           </p>
                         </div>
-                        <span
-                          className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${
-                            match.didWin
-                              ? "bg-green-500/15 text-green-300"
-                              : "bg-slate-700 text-slate-300"
-                          }`}
-                        >
-                          {match.didWin ? "Win" : "Loss"}
-                        </span>
+                        <div className="flex items-start gap-2 self-start">
+                          {onEditReplayAssignment ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onEditReplayAssignment(match.replayId)
+                              }
+                              className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition hover:border-purple-400/60 hover:bg-slate-700/80"
+                            >
+                              Edit
+                            </button>
+                          ) : null}
+                          <span
+                            className={`inline-flex w-fit rounded-full px-3 py-1 text-xs font-medium ${
+                              match.didWin
+                                ? "bg-green-500/15 text-green-300"
+                                : "bg-slate-700 text-slate-300"
+                            }`}
+                          >
+                            {match.didWin ? "Win" : "Loss"}
+                          </span>
+                        </div>
                       </div>
 
                       <div className="mt-3 flex flex-wrap gap-2">

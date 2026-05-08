@@ -1,5 +1,6 @@
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -230,6 +231,12 @@ export async function updateSavedGameAssignments(
   });
 
   await batch.commit();
+}
+
+export async function deleteSavedGame(uid: string, replayId: string) {
+  const firestore = assertFirestoreConfigured();
+  const gameDoc = doc(collection(firestore, "users", uid, "games"), replayId);
+  await deleteDoc(gameDoc);
 }
 
 function serializeCreatedAt(value: Timestamp | null | undefined) {

@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import type { User } from "firebase/auth";
 
-import { loadSavedGames, updateSavedGameAssignments } from "../lib/gameHistory";
+import {
+  deleteSavedGame,
+  loadSavedGames,
+  updateSavedGameAssignments,
+} from "../lib/gameHistory";
 import {
   getPlayerFeedbackGroups,
   getTechSuccessRate,
@@ -180,6 +184,7 @@ export default function SavedGamesPage({
     Record<string, string>
   >({});
   const [assignmentSaving, setAssignmentSaving] = useState(false);
+  const [deletingReplayId, setDeletingReplayId] = useState<string | null>(null);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(
     null,
@@ -592,6 +597,36 @@ export default function SavedGamesPage({
     }
   };
 
+  const handleDeleteReplay = async (replayId: string, filename: string) => {
+    if (!currentUser) {
+      return;
+    }
+
+    const confirmed = globalThis.confirm(
+      `Are you sure you want to delete ${filename} from your saved replays?`,
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingReplayId(replayId);
+    setAssignmentError(null);
+
+    try {
+      await deleteSavedGame(currentUser.uid, replayId);
+      setSavedGames((currentGames) =>
+        currentGames.filter((game) => game.id !== replayId),
+      );
+      setAssignmentMessage(`Deleted ${filename}.`);
+    } catch (error) {
+      setAssignmentError(
+        error instanceof Error ? error.message : "Failed to delete replay.",
+      );
+    } finally {
+      setDeletingReplayId(null);
+    }
+  };
+
   return (
     <div className="grid min-w-0 gap-8 overflow-x-hidden">
       <h2 className="text-2xl font-bold text-white">Saved Games</h2>
@@ -664,8 +699,12 @@ export default function SavedGamesPage({
                   subtitle="Review your saved replay history using the player assignment stored with each game"
                   summaryLabel="Saved replays"
                   showAssignmentSection={false}
+                  deletingReplayId={deletingReplayId}
                   onEditReplayAssignment={(replayId) => {
                     openAssignmentEditor(replayId);
+                  }}
+                  onDeleteReplay={(replayId, filename) => {
+                    void handleDeleteReplay(replayId, filename);
                   }}
                 />
               ) : (
@@ -688,6 +727,11 @@ export default function SavedGamesPage({
                   {assignmentMessage ? (
                     <p className="mt-2 text-sm text-emerald-300">
                       {assignmentMessage}
+                    </p>
+                  ) : null}
+                  {assignmentError ? (
+                    <p className="mt-2 text-sm text-red-300">
+                      {assignmentError}
                     </p>
                   ) : null}
                 </div>

@@ -400,6 +400,8 @@ const TrendDashboard = memo(function TrendDashboard({
   subtitle = "Review habits across a folder of replays by Slippi tag",
   showAssignmentSection = true,
   onEditReplayAssignment,
+  onDeleteReplay,
+  deletingReplayId,
 }: {
   batchAnalysis: BatchAnalysisResponse;
   selectedTag?: string;
@@ -409,6 +411,8 @@ const TrendDashboard = memo(function TrendDashboard({
   subtitle?: string;
   showAssignmentSection?: boolean;
   onEditReplayAssignment?: (replayId: string) => void;
+  onDeleteReplay?: (replayId: string, filename: string) => void;
+  deletingReplayId?: string | null;
 }) {
   const [replayOverrides, setReplayOverrides] = useState<
     Record<string, ReplayOverrideValue>
@@ -1051,6 +1055,20 @@ const TrendDashboard = memo(function TrendDashboard({
                               className="rounded-full border border-slate-600 bg-slate-800/80 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition hover:border-purple-400/60 hover:bg-slate-700/80"
                             >
                               Edit
+                            </button>
+                          ) : null}
+                          {onDeleteReplay ? (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                onDeleteReplay(match.replayId, match.filename)
+                              }
+                              disabled={deletingReplayId === match.replayId}
+                              className="rounded-full border border-red-400/35 bg-red-500/10 px-2.5 py-1 text-[11px] font-medium text-red-100 transition hover:border-red-300/60 hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {deletingReplayId === match.replayId
+                                ? "Deleting..."
+                                : "Delete"}
                             </button>
                           ) : null}
                           <span

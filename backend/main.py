@@ -63,6 +63,9 @@ def _parse_saved_replay_ids(saved_replay_ids_raw: str | None) -> set[str]:
         if isinstance(replay_id, str) and replay_id.strip()
     }
 
+# Limits concurrent replay analysis to one at a time to prevent CPU starvation on low-CPU deployments.
+_analysis_semaphore = asyncio.Semaphore(1)
+
 # Initialize FastAPI app
 app = FastAPI(
     title="StockSense API",
@@ -355,7 +358,8 @@ async def _analyze_uploaded_replay(file: UploadFile):
     temp_file_path = _persist_uploaded_content(safe_filename, content)
 
     try:
-        return _analyze_saved_replay(safe_filename, temp_file_path)
+        async with _analysis_semaphore:
+            return _analyze_saved_replay(safe_filename, temp_file_path)
     finally:
         _cleanup_temp_file(temp_file_path)
 
@@ -523,8 +527,9 @@ async def _run_analysis_job(
     try:
         for index, (safe_filename, temp_file_path) in enumerate(uploaded_files):
             try:
-                game = await asyncio.to_thread(load_replay, str(temp_file_path))
-                replay_identity = await asyncio.to_thread(_build_replay_identity, game)
+                async with _analysis_semaphore:
+                    game = await asyncio.to_thread(load_replay, str(temp_file_path))
+                    replay_identity = await asyncio.to_thread(_build_replay_identity, game)
                 replay_id = _build_replay_document_id(replay_identity)
 
                 if skip_duplicates and replay_id in saved_replay_ids:
@@ -536,15 +541,16 @@ async def _run_analysis_job(
                     )
                     continue
 
-                analysis = await asyncio.to_thread(
-                    _analyze_loaded_replay,
-                    game,
-                    safe_filename,
-                    metadata=replay_identity["metadata"],
-                    include_feedback=not is_batch,
-                    include_hit_locations=not is_batch,
-                    replay_id=replay_id,
-                )
+                async with _analysis_semaphore:
+                    analysis = await asyncio.to_thread(
+                        _analyze_loaded_replay,
+                        game,
+                        safe_filename,
+                        metadata=replay_identity["metadata"],
+                        include_feedback=not is_batch,
+                        include_hit_locations=not is_batch,
+                        replay_id=replay_id,
+                    )
                 replay_results.append(analysis)
 
                 for player in analysis.get("metadata", {}).get("players", []):

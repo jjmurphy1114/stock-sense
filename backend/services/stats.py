@@ -3,6 +3,7 @@ Stats extraction from loaded Slippi replays.
 Computes basic statistics about player actions, game length, and per-player habits.
 """
 
+from functools import lru_cache
 from slippi import Game
 from slippi.event import LCancel
 from slippi import id as sid
@@ -60,6 +61,7 @@ TECH_MISS_KEYWORDS = (
 )
 
 
+@lru_cache(maxsize=512)
 def _enum_name(value: Any) -> str:
     if value is None:
         return ""
@@ -197,52 +199,64 @@ def _get_post_state(player_state: Any) -> Any:
     return None
 
 
+@lru_cache(maxsize=512)
 def _is_aerial_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in AERIAL_KEYWORDS)
 
 
+@lru_cache(maxsize=512)
 def _is_landing_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in LANDING_KEYWORDS)
 
 
+@lru_cache(maxsize=512)
 def _is_knockdown_state(state_name: str) -> bool:
     if not state_name:
         return False
     return any(keyword in state_name for keyword in KNOCKDOWN_KEYWORDS)
 
 
+@lru_cache(maxsize=512)
 def _is_attack_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in ATTACK_KEYWORDS)
 
 
+@lru_cache(maxsize=512)
 def _is_movement_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in MOVEMENT_KEYWORDS)
 
 
+@lru_cache(maxsize=512)
 def _is_ledge_grab_state(state_name: str) -> bool:
     return "CLIFF_CATCH" in state_name
 
 
+@lru_cache(maxsize=512)
 def _is_air_dodge_state(state_name: str) -> bool:
     return "ESCAPE_AIR" in state_name
 
 
+@lru_cache(maxsize=512)
 def _is_fall_special_landing_state(state_name: str) -> bool:
     return "LANDING_FALL_SPECIAL" in state_name
 
 
+@lru_cache(maxsize=512)
 def _is_tech_success_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in TECH_SUCCESS_KEYWORDS)
 
 
+@lru_cache(maxsize=512)
 def _is_tech_miss_state(state_name: str) -> bool:
     return any(keyword in state_name for keyword in TECH_MISS_KEYWORDS)
 
 
+@lru_cache(maxsize=512)
 def _is_tech_opportunity_state(state_name: str) -> bool:
     return _is_tech_success_state(state_name) or _is_tech_miss_state(state_name)
 
 
+@lru_cache(maxsize=512)
 def _is_tumble_state(state_name: str) -> bool:
     airborne_damage_states = (
         "DAMAGE_FALL",

@@ -1374,6 +1374,24 @@ export default function ReplayAnalyzer({
                       )}
                     </div>
 
+                    {analysis.ai_feedback && analysis.ai_feedback.length > 0 && (
+                      <div className="space-y-3">
+                        <h3 className="text-sm font-semibold text-cyan-300 uppercase">
+                          🤖 AI Coach
+                        </h3>
+                        <div className="space-y-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
+                          {analysis.ai_feedback.map((item, idx) => (
+                            <div
+                              key={idx}
+                              className="rounded-lg border-l-4 border-cyan-500 bg-slate-700/50 p-3"
+                            >
+                              <p className="text-sm text-white">{item}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {analysis.stats.per_player.length > 0 && (
                       <div className="space-y-3">
                         <h3 className="text-sm font-semibold text-purple-300 uppercase">

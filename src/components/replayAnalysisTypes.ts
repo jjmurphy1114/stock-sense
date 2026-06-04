@@ -66,6 +66,7 @@ export interface AnalysisResponse {
     per_player: PerPlayerStats[];
   };
   feedback: string[];
+  ai_feedback?: string[];
   summary: string;
   metadata?: {
     players: AnalysisMetadataPlayer[];

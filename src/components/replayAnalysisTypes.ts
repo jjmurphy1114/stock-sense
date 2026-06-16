@@ -66,6 +66,8 @@ export interface AnalysisResponse {
     per_player: PerPlayerStats[];
   };
   feedback: string[];
+  feedback_source?: "batch";
+  batch_filenames?: string[];
   summary: string;
   metadata?: {
     players: AnalysisMetadataPlayer[];
@@ -110,6 +112,7 @@ export interface BatchAnalysisResponse {
     filename: string;
     replay_id: string;
   }>;
+  feedback?: string[];
 }
 
 export interface SavedGameRecord {

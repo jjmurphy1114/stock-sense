@@ -7,7 +7,7 @@
     "start": "npm run start:full",
     "dev": "vite",
     "start:frontend": "vite",
-    "start:backend": "backend/.venv/bin/python -m uvicorn backend.main:app --reload",
+    "start:backend": "cd backend && .venv/bin/python -m uvicorn main:app --reload",
     "start:full": "npm run start:backend & npm run start:frontend",
     "build": "tsc -b && vite build",
     "lint": "eslint .",

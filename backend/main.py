@@ -8,8 +8,12 @@ import json
 import os
 from pathlib import Path
 from uuid import uuid4
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parent / ".env")
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 try:
     from .services.parser import (
@@ -19,8 +23,8 @@ try:
         ReplayParseError,
     )
     from .services.stats import extract_stats
-    from .services.feedback import generate_feedback, format_feedback_response
-    from .services.ai_feedback import generate_ai_feedback
+    from .services.feedback import format_feedback_response
+    from .services.ai_feedback import generate_ai_feedback, generate_ai_batch_feedback
 except ImportError:
     from services.parser import (
         load_replay,
@@ -29,8 +33,8 @@ except ImportError:
         ReplayParseError,
     )
     from services.stats import extract_stats
-    from services.feedback import generate_feedback, format_feedback_response
-    from services.ai_feedback import generate_ai_feedback
+    from services.feedback import format_feedback_response
+    from services.ai_feedback import generate_ai_feedback, generate_ai_batch_feedback
 
 
 # Configuration
@@ -181,6 +185,7 @@ async def analyze_replay_start(
     file: UploadFile = File(...),
     saved_replay_ids: str | None = Form(default=None),
     skip_duplicates: bool = Form(default=False),
+    user_tag: str | None = Form(default=None),
 ):
     """Start asynchronous analysis of a single replay and return a job id."""
     if not file.filename:
@@ -212,6 +217,7 @@ async def analyze_replay_start(
             is_batch=False,
             saved_replay_ids=saved_replay_id_set,
             skip_duplicates=skip_duplicates,
+            user_tag=user_tag,
         )
     )
 
@@ -223,6 +229,7 @@ async def analyze_replay_batch_start(
     files: list[UploadFile] = File(...),
     saved_replay_ids: str | None = Form(default=None),
     skip_duplicates: bool = Form(default=False),
+    user_tag: str | None = Form(default=None),
 ):
     """Start asynchronous analysis of multiple replays and return a job id."""
     if not files:
@@ -267,10 +274,28 @@ async def analyze_replay_batch_start(
             is_batch=True,
             saved_replay_ids=saved_replay_id_set,
             skip_duplicates=skip_duplicates,
+            user_tag=user_tag,
         )
     )
 
     return {"job_id": job_id}
+
+
+class FeedbackRequest(BaseModel):
+    stats: dict
+    player_index: int | None = None
+    user_tag: str | None = None
+
+
+@app.post("/replay-feedback")
+async def get_replay_feedback(body: FeedbackRequest):
+    """Generate AI coaching feedback for a specific player from already-parsed replay stats."""
+    feedback = await generate_ai_feedback(
+        body.stats,
+        player_index=body.player_index,
+        user_tag=body.user_tag,
+    )
+    return {"feedback": feedback}
 
 
 @app.post("/replay-ids")
@@ -407,16 +432,14 @@ async def _analyze_loaded_replay(
     safe_filename: str,
     *,
     metadata: dict | None = None,
-    include_feedback: bool = True,
     include_hit_locations: bool = True,
     replay_id: str | None = None,
 ):
     resolved_metadata = metadata or extract_metadata(game)
     stats = extract_stats(game, include_hit_locations=include_hit_locations)
-    feedback = generate_feedback(stats) if include_feedback else []
-    ai_feedback = await generate_ai_feedback(stats) if include_feedback else None
+    ai_feedback: list = []
 
-    response = format_feedback_response(stats, feedback, ai_feedback)
+    response = format_feedback_response(stats, ai_feedback)
     response["metadata"] = resolved_metadata
     response["filename"] = safe_filename
     if replay_id is None:
@@ -515,6 +538,7 @@ async def _run_analysis_job(
     is_batch: bool,
     saved_replay_ids: set[str],
     skip_duplicates: bool,
+    user_tag: str | None = None,
 ) -> None:
     job = ANALYSIS_JOBS[job_id]
     replay_results = []
@@ -549,7 +573,6 @@ async def _run_analysis_job(
                         game,
                         safe_filename,
                         metadata=replay_identity["metadata"],
-                        include_feedback=not is_batch,
                         include_hit_locations=not is_batch,
                         replay_id=replay_id,
                     )
@@ -594,11 +617,15 @@ async def _run_analysis_job(
                 job["error"] = "None of the uploaded replay files could be processed."
                 return
 
+            all_replay_stats = [r.get("stats", {}) for r in replay_results]
+            batch_feedback = await generate_ai_batch_feedback(all_replay_stats, user_tag=user_tag)
+
             job["result"] = {
                 "replays": replay_results,
                 "available_tags": sorted(available_tags),
                 "failed_files": failed_files,
                 "duplicate_files": duplicate_files,
+                "feedback": batch_feedback,
             }
         else:
             if duplicate_files:

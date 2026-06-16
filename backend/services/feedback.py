@@ -443,20 +443,8 @@ def generate_feedback(stats: Dict[str, Any]) -> List[str]:
 def format_feedback_response(
     stats: Dict[str, Any],
     feedback_list: List[str],
-    ai_feedback: List[str] | None = None,
 ) -> Dict[str, Any]:
-    """
-    Format stats and feedback into a clean JSON response.
-
-    Args:
-        stats: Dictionary from extract_stats()
-        feedback_list: List from generate_feedback()
-        ai_feedback: Optional list from generate_ai_feedback()
-
-    Returns:
-        Formatted response dictionary
-    """
-    response: Dict[str, Any] = {
+    return {
         "stats": {
             "total_frames": stats.get("total_frames", 0),
             "total_actions": stats.get("total_actions", 0),
@@ -466,8 +454,5 @@ def format_feedback_response(
             "per_player": stats.get("per_player", []),
         },
         "feedback": feedback_list,
-        "summary": "Replay analysis complete." if not any("error" in str(f).lower() for f in feedback_list) else "Analysis completed with warnings.",
+        "summary": "Replay analysis complete.",
     }
-    if ai_feedback is not None:
-        response["ai_feedback"] = ai_feedback
-    return response

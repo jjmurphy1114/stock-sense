@@ -3,7 +3,6 @@ import type { User } from "firebase/auth";
 
 import {
   getDefaultBatchTag,
-  getPlayerFeedbackGroups,
   getTechSuccessRate,
 } from "../lib/replayAnalysisUi";
 import {
@@ -216,15 +215,37 @@ export default function ReplayAnalyzer({
   const [skipDuplicates, setSkipDuplicates] = useState(true);
   const [pendingAssignmentState, setPendingAssignmentState] =
     useState<PendingAssignmentState | null>(null);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
   const stageDisplayName = getStageLayout(
     analysis?.metadata?.stage,
   ).displayName;
-  const playerFeedbackGroups = analysis
-    ? getPlayerFeedbackGroups(analysis)
-    : [];
   const commonAssignablePlayerIndices = pendingAssignmentState
     ? getCommonAssignablePlayerIndices(pendingAssignmentState.replays)
     : [];
+
+  const fetchSingleReplayFeedback = async (
+    stats: AnalysisResponse["stats"],
+    playerIndex: number | null,
+  ) => {
+    setFeedbackLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/replay-feedback`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stats,
+          player_index: playerIndex,
+          user_tag: profile?.slippiGamertag ?? null,
+        }),
+      });
+      if (response.ok) {
+        const data = (await response.json()) as { feedback: string[] };
+        setAnalysis((prev) => (prev ? { ...prev, feedback: data.feedback } : prev));
+      }
+    } finally {
+      setFeedbackLoading(false);
+    }
+  };
 
   const directoryPickerProps = {
     webkitdirectory: "",
@@ -499,6 +520,9 @@ export default function ReplayAnalyzer({
           {
             ...replay,
             trackedPlayerAssignment,
+            feedback: batchData.feedback ?? [],
+            feedback_source: "batch" as const,
+            batch_filenames: batchData.replays.map((r) => r.filename),
           },
         ];
       });
@@ -592,6 +616,9 @@ export default function ReplayAnalyzer({
         "skip_duplicates",
         savedReplayIds.length > 0 && skipDuplicates ? "true" : "false",
       );
+      if (profile?.slippiGamertag) {
+        formData.append("user_tag", profile.slippiGamertag);
+      }
 
       const response = await postFormDataWithProgress(
         `${API_BASE_URL}${isBatchUpload ? "/analyze-batch-start" : "/analyze-start"}`,
@@ -741,6 +768,7 @@ export default function ReplayAnalyzer({
               precheckWarnings,
             ),
           );
+          void fetchSingleReplayFeedback(data.stats, null);
         } else {
           const replayWithFile: ReplayAnalysisWithFile = {
             ...data,
@@ -770,12 +798,12 @@ export default function ReplayAnalyzer({
               ),
             );
           } else {
+            const autoPlayerIndex =
+              pendingReplays[0].suggestedAssignment?.playerIndex ?? null;
             const trackedAssignments = buildTrackedAssignmentsLookup(
               pendingReplays,
               {
-                [pendingReplays[0].replayId]: String(
-                  pendingReplays[0].suggestedAssignment?.playerIndex ?? "",
-                ),
+                [pendingReplays[0].replayId]: String(autoPlayerIndex ?? ""),
               },
             );
             await persistCompletedAnalysis(
@@ -792,6 +820,7 @@ export default function ReplayAnalyzer({
                 precheckWarnings,
               ),
             );
+            void fetchSingleReplayFeedback(data.stats, autoPlayerIndex);
           }
         }
       }
@@ -855,18 +884,26 @@ export default function ReplayAnalyzer({
             available_tags: batchAnalysis?.available_tags ?? [],
             failed_files: batchAnalysis?.failed_files ?? [],
             duplicate_files: batchAnalysis?.duplicate_files ?? [],
+            feedback: batchAnalysis?.feedback ?? [],
           },
           pendingState.replays.map((replay) => replay.filename),
           trackedAssignments,
         );
       } else {
+        const singleReplay = pendingState.replays[0];
         await persistCompletedAnalysis(
           false,
-          pendingState.replays[0]?.analysis ?? null,
+          singleReplay?.analysis ?? null,
           null,
           pendingState.replays.map((replay) => replay.filename),
           trackedAssignments,
         );
+        if (singleReplay) {
+          const playerIndex =
+            trackedAssignments.byReplayId[singleReplay.replayId]?.playerIndex ??
+            null;
+          void fetchSingleReplayFeedback(singleReplay.analysis.stats, playerIndex);
+        }
       }
     } catch (saveError) {
       setPendingAssignmentState((current) =>
@@ -1311,86 +1348,31 @@ export default function ReplayAnalyzer({
                       <h3 className="text-sm font-semibold text-purple-300 uppercase">
                         Coaching Feedback
                       </h3>
-                      {playerFeedbackGroups.length > 0 ? (
-                        <div className="grid gap-4 lg:grid-cols-2">
-                          {playerFeedbackGroups.map((player) => (
-                            <div
-                              key={player.player_index}
-                              className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4"
-                            >
-                              <div className="mb-3 flex items-center gap-3 border-b border-slate-700 pb-3">
-                                <CharacterIcon
-                                  character={player.character}
-                                  className="h-9 w-9"
-                                />
-                                <div>
-                                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-purple-300">
-                                    Player {player.player_index + 1}
-                                  </p>
-                                  <p className="text-sm font-semibold text-white">
-                                    {player.player_name}{" "}
-                                    <span className="text-slate-400">
-                                      ({formatCharacterName(player.character)})
-                                    </span>
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="space-y-2">
-                                {player.feedback.length > 0 ? (
-                                  player.feedback.map((item, idx) => (
-                                    <div
-                                      key={`${player.player_index}-${idx}`}
-                                      className="rounded-lg border-l-4 border-purple-500 bg-slate-700/50 p-3"
-                                    >
-                                      <p className="text-sm text-white">
-                                        {item}
-                                      </p>
-                                    </div>
-                                  ))
-                                ) : (
-                                  <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-                                    <p className="text-sm text-slate-300">
-                                      No player-specific coaching notes were
-                                      generated for this replay.
-                                    </p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <div className="space-y-2">
-                          {analysis.feedback.map((item, idx) => (
+                      <div className="space-y-2">
+                        {feedbackLoading ? (
+                          <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+                            <p className="text-sm text-slate-400 animate-pulse">
+                              Generating coaching notes…
+                            </p>
+                          </div>
+                        ) : analysis.feedback.length > 0 ? (
+                          analysis.feedback.map((item, idx) => (
                             <div
                               key={idx}
                               className="bg-slate-700/50 rounded-lg p-3 border-l-4 border-purple-500"
                             >
                               <p className="text-white text-sm">{item}</p>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {analysis.ai_feedback && analysis.ai_feedback.length > 0 && (
-                      <div className="space-y-3">
-                        <h3 className="text-sm font-semibold text-cyan-300 uppercase">
-                          🤖 AI Coach
-                        </h3>
-                        <div className="space-y-2 rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4">
-                          {analysis.ai_feedback.map((item, idx) => (
-                            <div
-                              key={idx}
-                              className="rounded-lg border-l-4 border-cyan-500 bg-slate-700/50 p-3"
-                            >
-                              <p className="text-sm text-white">{item}</p>
-                            </div>
-                          ))}
-                        </div>
+                          ))
+                        ) : (
+                          <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+                            <p className="text-sm text-slate-300">
+                              No coaching notes were generated for this replay.
+                            </p>
+                          </div>
+                        )}
                       </div>
-                    )}
+                    </div>
 
                     {analysis.stats.per_player.length > 0 && (
                       <div className="space-y-3">
@@ -1505,19 +1487,38 @@ export default function ReplayAnalyzer({
             )}
 
             {batchAnalysis && (
-              <div className="bg-slate-800 rounded-xl shadow-2xl p-8 border border-green-500/20">
-                {batchAnalysis.available_tags.length > 0 ? (
-                  <TrendDashboard
-                    batchAnalysis={batchAnalysis}
-                    selectedTag={selectedTag}
-                    onSelectTag={setSelectedTag}
-                  />
-                ) : (
-                  <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
-                    The uploaded replays were parsed, but no non-empty Slippi
-                    tags were found to match a player across games.
+              <div className="space-y-6">
+                {batchAnalysis.feedback && batchAnalysis.feedback.length > 0 && (
+                  <div className="bg-slate-800 rounded-xl shadow-2xl p-8 border border-green-500/20 space-y-3">
+                    <h3 className="text-sm font-semibold text-purple-300 uppercase">
+                      Coaching Feedback
+                    </h3>
+                    <div className="space-y-2">
+                      {batchAnalysis.feedback.map((item, idx) => (
+                        <div
+                          key={idx}
+                          className="bg-slate-700/50 rounded-lg p-3 border-l-4 border-purple-500"
+                        >
+                          <p className="text-white text-sm">{item}</p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
+                <div className="bg-slate-800 rounded-xl shadow-2xl p-8 border border-green-500/20">
+                  {batchAnalysis.available_tags.length > 0 ? (
+                    <TrendDashboard
+                      batchAnalysis={batchAnalysis}
+                      selectedTag={selectedTag}
+                      onSelectTag={setSelectedTag}
+                    />
+                  ) : (
+                    <div className="rounded-2xl border border-slate-600 bg-slate-900/35 p-5 text-sm text-slate-300">
+                      The uploaded replays were parsed, but no non-empty Slippi
+                      tags were found to match a player across games.
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </div>

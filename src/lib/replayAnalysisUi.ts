@@ -1,8 +1,4 @@
-import type {
-  AnalysisResponse,
-  BatchAnalysisResponse,
-  PerPlayerStats,
-} from "../components/replayAnalysisTypes";
+import type { BatchAnalysisResponse } from "../components/replayAnalysisTypes";
 
 export function getTechSuccessRate(
   techAttempts: number,
@@ -14,29 +10,6 @@ export function getTechSuccessRate(
 
   const successfulTechs = Math.max(0, techAttempts - missedTechs);
   return Number(((successfulTechs / techAttempts) * 100).toFixed(1));
-}
-
-export function getPlayerFeedbackGroups(analysis: AnalysisResponse) {
-  const perPlayer = analysis.stats.per_player;
-
-  return perPlayer.map((player) => {
-    const playerNumberLabel = `Player ${player.player_index + 1}`;
-    const exactName = player.player_name.trim();
-
-    const items = analysis.feedback.filter((entry) => {
-      return (
-        entry.includes(exactName) ||
-        entry.includes(playerNumberLabel) ||
-        entry.includes(`${player.character} vs`) ||
-        entry.includes(`In ${player.character} vs`)
-      );
-    });
-
-    return {
-      ...player,
-      feedback: items,
-    };
-  });
 }
 
 export function getDefaultBatchTag(data: BatchAnalysisResponse): string {
@@ -104,7 +77,3 @@ export function averageDefinedNumbers(values: Array<number | null | undefined>) 
     definedValues.length
   );
 }
-
-export type PlayerFeedbackGroup = PerPlayerStats & {
-  feedback: string[];
-};

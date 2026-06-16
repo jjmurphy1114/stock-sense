@@ -6,10 +6,7 @@ import {
   loadSavedGames,
   updateSavedGameAssignments,
 } from "../lib/gameHistory";
-import {
-  getPlayerFeedbackGroups,
-  getTechSuccessRate,
-} from "../lib/replayAnalysisUi";
+import { getTechSuccessRate } from "../lib/replayAnalysisUi";
 import {
   buildTrackedPlayerAssignment,
   getAssignablePlayers,
@@ -465,9 +462,6 @@ export default function SavedGamesPage({
   const selectedAnalysis = selectedGame
     ? expandPersistedAnalysis(selectedGame.analysis)
     : null;
-  const playerFeedbackGroups = selectedAnalysis
-    ? getPlayerFeedbackGroups(selectedAnalysis)
-    : [];
   const assignedGameCount = savedGames.filter(
     (game) => game.trackedPlayerAssignment != null,
   ).length;
@@ -1069,70 +1063,42 @@ export default function SavedGamesPage({
 
                       <div className="space-y-3">
                         <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-purple-300">
-                          Feedback
+                          Coaching Feedback
                         </h3>
-                        {playerFeedbackGroups.length > 0 ? (
-                          <div className="grid gap-4 lg:grid-cols-2">
-                            {playerFeedbackGroups.map((player) => (
-                              <div
-                                key={player.player_index}
-                                className="rounded-2xl border border-slate-600 bg-slate-900/35 p-4"
-                              >
-                                <div className="mb-3 flex items-center gap-3 border-b border-slate-700 pb-3">
-                                  <CharacterIcon
-                                    character={player.character}
-                                    className="h-9 w-9"
-                                  />
-                                  <div>
-                                    <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-purple-300">
-                                      Player {player.player_index + 1}
-                                    </p>
-                                    <p className="text-sm font-semibold text-white">
-                                      {player.player_name}{" "}
-                                      <span className="text-slate-400">
-                                        ({formatCharacterName(player.character)}
-                                        )
-                                      </span>
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="space-y-2">
-                                  {player.feedback.length > 0 ? (
-                                    player.feedback.map((item, index) => (
-                                      <div
-                                        key={`${player.player_index}-${index}`}
-                                        className="rounded-lg border-l-4 border-purple-500 bg-slate-700/50 p-3"
-                                      >
-                                        <p className="text-sm text-white">
-                                          {item}
-                                        </p>
-                                      </div>
-                                    ))
-                                  ) : (
-                                    <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
-                                      <p className="text-sm text-slate-300">
-                                        No player-specific coaching notes were
-                                        generated for this replay.
-                                      </p>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <div className="grid gap-3">
-                            {selectedAnalysis.feedback.map((item, index) => (
+                        {selectedAnalysis.feedback_source === "batch" &&
+                          selectedAnalysis.batch_filenames && (
+                            <div className="rounded-lg border border-slate-600 bg-slate-900/50 p-3">
+                              <p className="text-xs font-semibold text-slate-400">
+                                AI coaching from batch upload of{" "}
+                                {selectedAnalysis.batch_filenames.length} replays
+                              </p>
+                              <ul className="mt-1 space-y-0.5">
+                                {selectedAnalysis.batch_filenames.map((fn) => (
+                                  <li key={fn} className="text-xs text-slate-500 truncate">
+                                    {fn}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                        <div className="grid gap-3">
+                          {selectedAnalysis.feedback.length > 0 ? (
+                            selectedAnalysis.feedback.map((item, index) => (
                               <div
                                 key={`${selectedGame.id}-${index}`}
                                 className="rounded-lg border-l-4 border-purple-500 bg-slate-700/50 p-3"
                               >
                                 <p className="text-sm text-white">{item}</p>
                               </div>
-                            ))}
-                          </div>
-                        )}
+                            ))
+                          ) : (
+                            <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3">
+                              <p className="text-sm text-slate-300">
+                                No coaching notes were generated for this replay.
+                              </p>
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       {selectedAnalysis.stats.per_player.length > 0 ? (
